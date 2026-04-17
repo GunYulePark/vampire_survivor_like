@@ -304,7 +304,7 @@ function resetGame(classKey = state.heroClass ?? null) {
     maxHp: 18,
     invuln: 0,
     flash: 0,
-    pickupRadius: 200,
+    pickupRadius: 320,
     animTime: 0,
     moving: false,
     facing: 1,
@@ -843,11 +843,11 @@ function updatePickups(dt) {
   const nextGems = [];
   for (const gem of state.entities.gems) {
     let d = distance(gem.x, gem.y, state.player.x, state.player.y);
-    if (d <= state.player.pickupRadius) {
+    if (d <= state.player.pickupRadius * 1.8) {
       const dx = state.player.x - gem.x;
       const dy = state.player.y - gem.y;
       const norm = Math.hypot(dx, dy) || 1;
-      const step = Math.min(d, Math.max(140, 520 - d) * dt);
+      const step = Math.min(d, Math.max(260, 980 - d * 0.65) * dt);
       gem.x += (dx / norm) * step;
       gem.y += (dy / norm) * step;
       d = distance(gem.x, gem.y, state.player.x, state.player.y);
@@ -856,7 +856,7 @@ function updatePickups(dt) {
     if (d <= state.player.radius + gem.radius + 3) {
       gainXp(gem.value);
       addText(state.player.x, state.player.y - 30, `+${gem.value} xp`, 0.45, "#67e8a5");
-    } else if (inActiveBounds(gem.x, gem.y, 260)) {
+    } else if (inActiveBounds(gem.x, gem.y, 420)) {
       nextGems.push(gem);
     }
   }
