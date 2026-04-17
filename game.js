@@ -1089,6 +1089,97 @@ function drawPickups() {
 }
 
 function drawEffects() {
+  function drawLightningBolt(start, end, bolt) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const flicker = bolt.life / bolt.maxLife;
+    const segments = Math.max(4, Math.round(len / 24));
+    const path = [{ x: start.x, y: start.y }];
+
+    for (let i = 1; i < segments; i += 1) {
+      const t = i / segments;
+      const spread = (1 - Math.abs(t - 0.5) * 1.4) * worldUnit(18) * flicker;
+      const jitter = Math.sin((t * 12) + bolt.life * 38 + i * 0.9) * spread;
+      path.push({
+        x: start.x + dx * t + nx * jitter,
+        y: start.y + dy * t + ny * jitter,
+      });
+    }
+    path.push({ x: end.x, y: end.y });
+
+    const gradient = ctx.createLinearGradient(start.x, start.y, end.x, end.y);
+    gradient.addColorStop(0, "rgba(211,245,255,0.75)");
+    gradient.addColorStop(0.5, "rgba(122,226,255,0.98)");
+    gradient.addColorStop(1, "rgba(246,252,255,0.82)");
+
+    ctx.save();
+    ctx.shadowColor = "rgba(110, 227, 255, 0.85)";
+    ctx.shadowBlur = 18 * flicker + 6;
+    ctx.strokeStyle = "rgba(124, 229, 255, 0.36)";
+    ctx.lineWidth = Math.max(4, worldUnit(bolt.width * 2.6));
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let i = 1; i < path.length; i += 1) ctx.lineTo(path[i].x, path[i].y);
+    ctx.stroke();
+
+    ctx.strokeStyle = gradient;
+    ctx.lineWidth = Math.max(2, worldUnit(bolt.width * 1.35));
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let i = 1; i < path.length; i += 1) ctx.lineTo(path[i].x, path[i].y);
+    ctx.stroke();
+
+    ctx.strokeStyle = "#f9feff";
+    ctx.lineWidth = Math.max(1, worldUnit(bolt.width * 0.55));
+    ctx.beginPath();
+    ctx.moveTo(path[0].x, path[0].y);
+    for (let i = 1; i < path.length; i += 1) ctx.lineTo(path[i].x, path[i].y);
+    ctx.stroke();
+    ctx.restore();
+
+    const branchCount = Math.min(3, Math.max(1, Math.round(len / 120)));
+    for (let i = 0; i < branchCount; i += 1) {
+      const pivotIndex = Math.min(path.length - 2, 1 + i * Math.max(1, Math.floor((path.length - 2) / branchCount)));
+      const pivot = path[pivotIndex];
+      const branchLength = worldUnit(18 + i * 8) * flicker;
+      const branchAngle = Math.atan2(dy, dx) + (i % 2 === 0 ? -1.1 : 1.1);
+      const bx = pivot.x + Math.cos(branchAngle) * branchLength;
+      const by = pivot.y + Math.sin(branchAngle) * branchLength;
+
+      ctx.strokeStyle = "rgba(170, 238, 255, 0.55)";
+      ctx.lineWidth = Math.max(1, worldUnit(bolt.width * 0.7));
+      ctx.beginPath();
+      ctx.moveTo(pivot.x, pivot.y);
+      ctx.lineTo((pivot.x + bx) / 2 + nx * worldUnit(4), (pivot.y + by) / 2 + ny * worldUnit(4));
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+    }
+
+    const impactRadius = worldUnit(10 + bolt.width * 2.2) * flicker;
+    const impactGlow = ctx.createRadialGradient(end.x, end.y, 0, end.x, end.y, impactRadius * 1.8);
+    impactGlow.addColorStop(0, "rgba(255,255,255,0.95)");
+    impactGlow.addColorStop(0.35, "rgba(166,237,255,0.55)");
+    impactGlow.addColorStop(1, "rgba(166,237,255,0)");
+    ctx.fillStyle = impactGlow;
+    ctx.beginPath();
+    ctx.arc(end.x, end.y, impactRadius * 1.8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(237, 250, 255, 0.75)";
+    ctx.lineWidth = Math.max(1, worldUnit(1.5));
+    for (let i = 0; i < 5; i += 1) {
+      const angle = (Math.PI * 2 * i) / 5 + bolt.life * 8;
+      const sparkLen = impactRadius * (1.2 + (i % 2) * 0.45);
+      ctx.beginPath();
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(end.x + Math.cos(angle) * sparkLen, end.y + Math.sin(angle) * sparkLen);
+      ctx.stroke();
+    }
+  }
+
   for (const burst of state.entities.bursts) {
     const p = worldToScreen(burst.x, burst.y);
     const ratio = 1 - burst.life / burst.maxLife;
@@ -1119,19 +1210,7 @@ function drawEffects() {
   for (const bolt of state.entities.bolts) {
     const a = worldToScreen(bolt.x1, bolt.y1);
     const b = worldToScreen(bolt.x2, bolt.y2);
-    const mx = (a.x + b.x) / 2 + rand(-worldUnit(16), worldUnit(16));
-    const my = (a.y + b.y) / 2 + rand(-worldUnit(16), worldUnit(16));
-    const width = Math.max(1, Math.round(worldUnit(bolt.width) * (bolt.life / bolt.maxLife)));
-    ctx.strokeStyle = bolt.color;
-    ctx.lineWidth = width;
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(mx, my);
-    ctx.lineTo(b.x, b.y);
-    ctx.stroke();
-    ctx.strokeStyle = "#f8fdff";
-    ctx.lineWidth = Math.max(1, width - 2);
-    ctx.stroke();
+    drawLightningBolt(a, b, bolt);
   }
 }
 
