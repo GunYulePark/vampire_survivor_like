@@ -17,7 +17,12 @@ let audioReady = false;
 const audioState = {
   ctx: null,
   master: null,
+  sfxGain: null,
+  bgmGain: null,
   lastPlayed: new Map(),
+  bgmStarted: false,
+  bgmNextTime: 0,
+  bgmStep: 0,
 };
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -44,12 +49,27 @@ function ensureAudio() {
 
   audioState.ctx = new AudioCtx();
   audioState.master = audioState.ctx.createGain();
-  audioState.master.gain.value = 0.18;
+  audioState.sfxGain = audioState.ctx.createGain();
+  audioState.bgmGain = audioState.ctx.createGain();
+  audioState.master.gain.value = 0.23;
+  audioState.sfxGain.gain.value = 1.08;
+  audioState.bgmGain.gain.value = 0.4;
+  audioState.sfxGain.connect(audioState.master);
+  audioState.bgmGain.connect(audioState.master);
   audioState.master.connect(audioState.ctx.destination);
+  audioState.bgmStarted = false;
+  audioState.bgmNextTime = audioState.ctx.currentTime;
+  audioState.bgmStep = 0;
   audioReady = true;
 }
 
-function playTone({ freq, endFreq = freq, duration = 0.08, type = "sine", gain = 0.07, when = 0 }) {
+function getAudioBus(bus = "sfx") {
+  if (bus === "bgm" && audioState.bgmGain) return audioState.bgmGain;
+  if (bus === "sfx" && audioState.sfxGain) return audioState.sfxGain;
+  return audioState.master;
+}
+
+function playTone({ freq, endFreq = freq, duration = 0.08, type = "sine", gain = 0.07, when = 0, bus = "sfx" }) {
   if (!audioReady || !audioState.ctx) return;
   const t0 = audioState.ctx.currentTime + when;
   const osc = audioState.ctx.createOscillator();
@@ -61,12 +81,12 @@ function playTone({ freq, endFreq = freq, duration = 0.08, type = "sine", gain =
   amp.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
   amp.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
   osc.connect(amp);
-  amp.connect(audioState.master);
+  amp.connect(getAudioBus(bus));
   osc.start(t0);
   osc.stop(t0 + duration + 0.02);
 }
 
-function playNoise({ duration = 0.08, gain = 0.035, filter = 900, when = 0 }) {
+function playNoise({ duration = 0.08, gain = 0.035, filter = 900, when = 0, bus = "sfx" }) {
   if (!audioReady || !audioState.ctx) return;
   const length = Math.max(1, Math.floor(audioState.ctx.sampleRate * duration));
   const buffer = audioState.ctx.createBuffer(1, length, audioState.ctx.sampleRate);
@@ -89,8 +109,50 @@ function playNoise({ duration = 0.08, gain = 0.035, filter = 900, when = 0 }) {
 
   source.connect(filterNode);
   filterNode.connect(amp);
-  amp.connect(audioState.master);
+  amp.connect(getAudioBus(bus));
   source.start(t0);
+}
+
+function scheduleBgm() {
+  if (!audioReady || !audioState.ctx || !audioState.bgmGain) return;
+
+  const ctxAudio = audioState.ctx;
+  const beat = 0.36;
+  const progression = [
+    { bass: 98.0, chord: [196.0, 246.94, 293.66], lead: [392.0, 440.0] },
+    { bass: 110.0, chord: [220.0, 261.63, 329.63], lead: [440.0, 493.88] },
+    { bass: 82.41, chord: [164.81, 196.0, 246.94], lead: [329.63, 392.0] },
+    { bass: 87.31, chord: [174.61, 220.0, 261.63], lead: [349.23, 392.0] },
+  ];
+
+  if (!audioState.bgmStarted) {
+    audioState.bgmStarted = true;
+    audioState.bgmNextTime = ctxAudio.currentTime + 0.05;
+    audioState.bgmStep = 0;
+  }
+
+  while (audioState.bgmNextTime < ctxAudio.currentTime + 0.5) {
+    const step = audioState.bgmStep;
+    const bar = progression[Math.floor(step / 4) % progression.length];
+    const beatInBar = step % 4;
+    const t0 = audioState.bgmNextTime;
+
+    playTone({ freq: bar.bass, endFreq: bar.bass * 0.98, duration: beat * 0.9, type: "triangle", gain: 0.038, when: t0 - ctxAudio.currentTime, bus: "bgm" });
+    if (beatInBar === 0 || beatInBar === 2) {
+      for (const chordFreq of bar.chord) {
+        playTone({ freq: chordFreq, endFreq: chordFreq, duration: beat * 1.7, type: "sine", gain: 0.014, when: t0 - ctxAudio.currentTime, bus: "bgm" });
+      }
+    }
+
+    const leadFreq = bar.lead[beatInBar % bar.lead.length] * (beatInBar === 3 ? 1.122 : 1);
+    playTone({ freq: leadFreq, endFreq: leadFreq * 1.01, duration: beat * 0.55, type: "square", gain: 0.018, when: t0 - ctxAudio.currentTime + 0.03, bus: "bgm" });
+    if (beatInBar === 1) {
+      playTone({ freq: leadFreq * 0.75, endFreq: leadFreq * 0.76, duration: beat * 0.42, type: "triangle", gain: 0.013, when: t0 - ctxAudio.currentTime + 0.16, bus: "bgm" });
+    }
+
+    audioState.bgmNextTime += beat;
+    audioState.bgmStep += 1;
+  }
 }
 
 function playSfx(name) {
@@ -224,6 +286,11 @@ function resetGame() {
     bursts: 14,
     bolts: 18,
   };
+
+  if (audioState.ctx) {
+    audioState.bgmStep = 0;
+    audioState.bgmNextTime = audioState.ctx.currentTime + 0.08;
+  }
 }
 
 function worldToScreen(x, y) {
@@ -1107,6 +1174,7 @@ function formatTime(seconds) {
 function loop(now) {
   const dt = Math.min(0.033, (now - lastTime) / 1000);
   lastTime = now;
+  if (audioReady) scheduleBgm();
   update(dt);
   draw();
   requestAnimationFrame(loop);
