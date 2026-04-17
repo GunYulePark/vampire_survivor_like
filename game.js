@@ -353,12 +353,15 @@ function resetGame(classKey = state.heroClass ?? null) {
     pendingLevelUps: 0,
     kills: 0,
     time: 0,
+    nextBossTime: 300,
+    bossesDefeated: 0,
   };
 
   state.flags = {
     gameOver: false,
     levelUp: false,
     classSelect: !classDef,
+    bossReward: false,
   };
 
   state.entities = {
@@ -372,6 +375,7 @@ function resetGame(classKey = state.heroClass ?? null) {
   };
 
   state.upgrades = [];
+  state.bossRewards = [];
   state.limits = {
     enemies: 110,
     projectiles: 56,
@@ -484,6 +488,31 @@ function createEnemy(stats) {
   };
 }
 
+function spawnBoss() {
+  const angle = rand(0, Math.PI * 2);
+  const distanceFromPlayer = Math.max(HALF_W, HALF_H) + 220;
+  const x = state.player.x + Math.cos(angle) * distanceFromPlayer;
+  const y = state.player.y + Math.sin(angle) * distanceFromPlayer;
+  const tier = Math.floor(state.progress.time / 90);
+  const boss = createEnemy({
+    x,
+    y,
+    radius: 34 + tier * 2,
+    speed: 70 + tier * 5,
+    hp: 95 + tier * 26,
+    maxHp: 95 + tier * 26,
+    damage: 3 + Math.floor(tier / 2),
+    kind: "boss",
+    xp: 12 + tier * 4,
+    motion: "walk",
+    isBoss: true,
+    name: `Abyss Warden ${state.progress.bossesDefeated + 1}`,
+  });
+  state.entities.enemies.push(boss);
+  addText(state.player.x, state.player.y - 96, `${boss.name} has arrived`, 1.8, "#ffb36b");
+  addBurst(x, y, 110, 0.45, "#ff922b", "rgba(255, 169, 77, 0.18)");
+}
+
 function spawnEnemy() {
   const side = Math.floor(Math.random() * 4);
   const marginX = HALF_W + 120;
@@ -540,6 +569,34 @@ function weightedPick(pool, weights) {
     if (roll <= 0) return i;
   }
   return pool.length - 1;
+}
+
+function openBossReward() {
+  state.flags.bossReward = true;
+  playSfx("levelup");
+  const pool = [
+    { title: "Titan Core", desc: "Max HP +8, heal to full, armor holds.", apply: () => { state.player.maxHp += 8; state.player.hp = state.player.maxHp; } },
+    { title: "Celestial Volley", desc: "Blessed bolts +2, damage +2, cooldown -18%.", apply: () => { state.combat.projectileCount = Math.min(6, state.combat.projectileCount + 2); state.combat.projectileDamage += 2; state.combat.projectileCooldown = Math.max(0.1, state.combat.projectileCooldown * 0.82); } },
+    { title: "Reaper Dance", desc: "Sword arc damage +5, radius +20, cooldown -20%.", apply: () => { state.combat.meleeDamage += 5; state.combat.meleeRadius += 20; state.combat.meleeCooldown = Math.max(0.22, state.combat.meleeCooldown * 0.8); } },
+    { title: "Storm Sovereign", desc: "Lightning damage +4, +2 jumps, cooldown -18%.", apply: () => { state.combat.chainDamage += 4; state.combat.chainTargets = Math.min(9, state.combat.chainTargets + 2); state.combat.chainCooldown *= 0.82; } },
+    { title: "Sun Cathedral", desc: "Sanctify radius +26, damage +5, cooldown -18%.", apply: () => { state.combat.burstRadius += 26; state.combat.burstDamage += 5; state.combat.burstCooldown *= 0.82; } },
+    { title: "Falling Kingdom", desc: "Meteor +2 strikes, damage +4, cooldown -20%.", apply: () => { state.combat.meteorCount = Math.min(6, state.combat.meteorCount + 2); state.combat.meteorDamage += 4; state.combat.meteorCooldown *= 0.8; } },
+    { title: "Treasure Tempest", desc: "Pickup radius +96 and gain 3 extra level-ups.", apply: () => { state.player.pickupRadius += 96; state.progress.pendingLevelUps += 3; } },
+  ];
+  const available = [...pool].sort(() => Math.random() - 0.5);
+  state.bossRewards = available.slice(0, 3);
+}
+
+function applyBossReward(index) {
+  const choice = state.bossRewards[index];
+  if (!choice) return;
+  choice.apply();
+  playSfx("upgrade");
+  state.flags.bossReward = false;
+  state.bossRewards = [];
+  if (state.progress.pendingLevelUps > 0) {
+    openLevelUp();
+  }
 }
 
 function openLevelUp() {
@@ -750,8 +807,15 @@ function updateEnemies(dt) {
 
     if (enemy.hp <= 0) {
       state.progress.kills += 1;
-      state.entities.gems.push({ x: enemy.x, y: enemy.y, value: enemy.xp, radius: 8 });
-      if (Math.random() < state.combat.potionDropRate) {
+      state.entities.gems.push({ x: enemy.x, y: enemy.y, value: enemy.xp, radius: enemy.isBoss ? 14 : 8 });
+      if (enemy.isBoss) {
+        state.progress.bossesDefeated += 1;
+        state.entities.gems.push({ x: enemy.x + rand(-18, 18), y: enemy.y + rand(-18, 18), value: Math.ceil(enemy.xp * 0.75), radius: 12 });
+        state.entities.potions.push({ x: enemy.x + rand(-12, 12), y: enemy.y + rand(-12, 12), heal: 12, radius: 12 });
+        addText(enemy.x, enemy.y - enemy.radius - 24, "Boss Slain!", 1.2, "#ffe066");
+        addBurst(enemy.x, enemy.y, enemy.radius + 36, 0.5, "#ffe066", "rgba(255, 217, 102, 0.2)");
+        openBossReward();
+      } else if (Math.random() < state.combat.potionDropRate) {
         state.entities.potions.push({ x: enemy.x + rand(-10, 10), y: enemy.y + rand(-10, 10), heal: enemy.xp === 1 ? 4 : 7, radius: 10 });
       }
       continue;
@@ -848,13 +912,19 @@ function update(dt) {
   state.player.flash = Math.max(0, state.player.flash - dt);
   state.combat.meleeFlash = Math.max(0, state.combat.meleeFlash - dt);
 
-  if (state.flags.classSelect || state.flags.levelUp || state.flags.gameOver) {
+  if (state.flags.classSelect || state.flags.levelUp || state.flags.bossReward || state.flags.gameOver) {
     updateEffects(dt);
     return;
   }
 
   state.progress.time += dt;
   updateMovement(dt);
+
+  const bossAlive = state.entities.enemies.some((enemy) => enemy.isBoss && enemy.hp > 0);
+  if (!bossAlive && state.progress.time >= state.progress.nextBossTime) {
+    spawnBoss();
+    state.progress.nextBossTime += 300;
+  }
 
   state.timers.spawn += dt;
   const spawnGap = Math.max(0.16, 0.58 - state.progress.time * 0.004);
@@ -1111,6 +1181,17 @@ function drawEnemies() {
       px(p.x + worldUnit(2), bodyY + worldUnit(10 + legLiftB), worldUnit(4), worldUnit(8), "#6f5434");
       px(p.x + worldUnit(-4), bodyY + worldUnit(-10), worldUnit(3), worldUnit(3), "#1f2937");
       px(p.x + worldUnit(2), bodyY + worldUnit(-10), worldUnit(3), worldUnit(3), "#1f2937");
+    } else if (enemy.kind === "boss") {
+      px(p.x + worldUnit(-16), bodyY + worldUnit(-24), worldUnit(32), worldUnit(12), "#7d221c");
+      px(p.x + worldUnit(-22), bodyY + worldUnit(-10), worldUnit(44), worldUnit(30), "#4d1111");
+      px(p.x + worldUnit(-28), bodyY + worldUnit(-16), worldUnit(10), worldUnit(16), "#d94841");
+      px(p.x + worldUnit(18), bodyY + worldUnit(-16), worldUnit(10), worldUnit(16), "#d94841");
+      px(p.x + worldUnit(-10), bodyY + worldUnit(20 + legLiftA), worldUnit(7), worldUnit(10), "#2a0808");
+      px(p.x + worldUnit(3), bodyY + worldUnit(20 + legLiftB), worldUnit(7), worldUnit(10), "#2a0808");
+      px(p.x + worldUnit(-9), bodyY + worldUnit(-8), worldUnit(5), worldUnit(5), "#ffd6a5");
+      px(p.x + worldUnit(4), bodyY + worldUnit(-8), worldUnit(5), worldUnit(5), "#ffd6a5");
+      px(p.x + worldUnit(-4), bodyY + worldUnit(-28), worldUnit(4), worldUnit(10), "#ff922b");
+      px(p.x + worldUnit(2), bodyY + worldUnit(-28), worldUnit(4), worldUnit(10), "#ff922b");
     } else {
       px(p.x + worldUnit(-12), bodyY + worldUnit(-18), worldUnit(24), worldUnit(10), "#6d39a0");
       px(p.x + worldUnit(-16), bodyY + worldUnit(-8), worldUnit(32), worldUnit(24), "#4f2378");
@@ -1124,8 +1205,14 @@ function drawEnemies() {
 
     ctx.fillStyle = "#3d4252";
     ctx.fillRect(p.x - r, bodyY - r - worldUnit(12), r * 2, worldUnit(5));
-    ctx.fillStyle = "#69db7c";
+    ctx.fillStyle = enemy.isBoss ? "#ff922b" : "#69db7c";
     ctx.fillRect(p.x - r, bodyY - r - worldUnit(12), r * 2 * Math.max(0, enemy.hp / enemy.maxHp), worldUnit(5));
+    if (enemy.isBoss) {
+      ctx.fillStyle = "#ffe7a1";
+      ctx.font = "bold 14px Segoe UI";
+      ctx.textAlign = "center";
+      ctx.fillText(enemy.name, p.x, bodyY - r - worldUnit(18));
+    }
   }
 }
 
@@ -1282,7 +1369,7 @@ function drawHud() {
   ctx.fillStyle = "#d7e3d1";
   ctx.fillText(`Bolt ${state.combat.projectileCooldown.toFixed(2)}s  Sword ${state.combat.meleeCooldown.toFixed(2)}s`, 32, 98);
   ctx.fillText(`Storm ${state.combat.chainCooldown.toFixed(2)}s  Sanctify ${state.combat.burstCooldown.toFixed(2)}s`, 32, 120);
-  ctx.fillText(`Meteor ${state.combat.meteorCooldown.toFixed(2)}s`, 32, 142);
+  ctx.fillText(`Meteor ${state.combat.meteorCooldown.toFixed(2)}s  Next Boss ${formatTime(Math.max(0, state.progress.nextBossTime - state.progress.time))}`, 32, 142);
 
   const hpRatio = clamp(state.player.hp / state.player.maxHp, 0, 1);
   ctx.fillStyle = "#2f3542";
@@ -1352,6 +1439,47 @@ function drawLevelUpOverlay() {
     ctx.fillStyle = "#9ce5b0";
     ctx.font = "15px Segoe UI";
     ctx.fillText(hovered ? "Ready" : "Choose", x + cardW / 2, y + 216);
+    cardHitboxes.push({ x, y, w: cardW, h: 250 });
+  });
+}
+
+function drawBossRewardOverlay() {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffb36b";
+  ctx.font = "bold 36px Segoe UI";
+  ctx.fillText("Boss Relic", HALF_W, 94);
+  ctx.fillStyle = "#fff0d9";
+  ctx.font = "18px Segoe UI";
+  ctx.fillText("Choose 1 rare reward from the fallen boss", HALF_W, 126);
+
+  cardHitboxes = [];
+  const cardW = 280;
+  const gap = 26;
+  const total = cardW * 3 + gap * 2;
+  const startX = (WIDTH - total) / 2;
+
+  state.bossRewards.forEach((upgrade, index) => {
+    const x = startX + index * (cardW + gap);
+    const y = 182;
+    const hovered =
+      (mouseState.inside && mouseState.x >= x && mouseState.x <= x + cardW && mouseState.y >= y && mouseState.y <= y + 250) ||
+      mouseState.wheelSelection === index;
+    ctx.fillStyle = "rgba(36, 18, 10, 0.96)";
+    ctx.fillRect(x, y, cardW, 250);
+    ctx.strokeStyle = hovered ? "#ffe066" : "#ff922b";
+    ctx.lineWidth = hovered ? 4 : 2;
+    ctx.strokeRect(x, y, cardW, 250);
+    ctx.fillStyle = "#fff4da";
+    ctx.font = "bold 22px Segoe UI";
+    ctx.fillText(`${index + 1}. ${upgrade.title}`, x + cardW / 2, y + 50);
+    ctx.fillStyle = "#ffe7c2";
+    ctx.font = "17px Segoe UI";
+    wrapText(upgrade.desc, x + cardW / 2, y + 118, 220, 26);
+    ctx.fillStyle = hovered ? "#ffe066" : "#ffbe76";
+    ctx.font = "15px Segoe UI";
+    ctx.fillText(hovered ? "Claim" : "Rare Reward", x + cardW / 2, y + 216);
     cardHitboxes.push({ x, y, w: cardW, h: 250 });
   });
 }
@@ -1491,6 +1619,7 @@ function draw() {
   if (!state.flags.classSelect) drawHud();
   drawBuildStamp();
   if (state.flags.classSelect) drawClassSelectOverlay();
+  if (state.flags.bossReward) drawBossRewardOverlay();
   if (state.flags.levelUp) drawLevelUpOverlay();
   if (state.flags.gameOver) drawGameOverOverlay();
 }
@@ -1526,6 +1655,11 @@ window.addEventListener("keydown", (event) => {
 
   if (state.flags.gameOver && key === "r") {
     resetGame(state.heroClass);
+    return;
+  }
+
+  if (state.flags.bossReward && ["1", "2", "3"].includes(key)) {
+    applyBossReward(Number(key) - 1);
     return;
   }
 
@@ -1571,10 +1705,10 @@ canvas.addEventListener(
   "wheel",
   (event) => {
     updateMouse(event);
-    if (!state.flags.classSelect && !state.flags.levelUp) return;
+    if (!state.flags.classSelect && !state.flags.levelUp && !state.flags.bossReward) return;
     event.preventDefault();
 
-    const listLength = state.flags.classSelect ? CLASS_KEYS.length : state.upgrades.length;
+    const listLength = state.flags.classSelect ? CLASS_KEYS.length : state.flags.bossReward ? state.bossRewards.length : state.upgrades.length;
     if (!listLength) return;
 
     const direction = event.deltaY > 0 ? 1 : -1;
@@ -1593,6 +1727,11 @@ canvas.addEventListener("click", (event) => {
   if (state.flags.classSelect) {
     const picked = classHitboxes.find((box) => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h);
     if (picked) resetGame(picked.classKey);
+    return;
+  }
+  if (state.flags.bossReward) {
+    const index = cardHitboxes.findIndex((box) => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h);
+    if (index >= 0) applyBossReward(index);
     return;
   }
   if (!state.flags.levelUp) return;
