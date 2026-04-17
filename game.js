@@ -27,6 +27,11 @@ const tileNoise = (x, y) => Math.abs((x * 92821) ^ (y * 68917) ^ 0x45d9f3b);
 
 const state = {};
 
+function px(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+}
+
 function ensureAudio() {
   if (audioState.ctx) {
     if (audioState.ctx.state === "suspended") audioState.ctx.resume();
@@ -725,16 +730,20 @@ function drawBackground() {
         ctx.stroke();
       }
       if ((noise & 31) === 10) {
-        ctx.fillStyle = "#305239";
-        ctx.fillRect(p.x + 18, p.y + 20, 6, 10);
-        ctx.fillRect(p.x + 24, p.y + 14, 6, 18);
-        ctx.fillRect(p.x + 30, p.y + 20, 6, 10);
+        px(p.x + 18, p.y + 20, 6, 10, "#305239");
+        px(p.x + 24, p.y + 14, 6, 18, "#3d6648");
+        px(p.x + 30, p.y + 20, 6, 10, "#305239");
+        px(p.x + 22, p.y + 12, 10, 4, "#7dc28e");
       }
       if ((noise & 31) === 18) {
-        ctx.fillStyle = "#4f5a48";
-        ctx.fillRect(p.x + 84, p.y + 80, 18, 18);
+        px(p.x + 84, p.y + 80, 18, 18, "#4f5a48");
         ctx.strokeStyle = "#65735f";
         ctx.strokeRect(p.x + 84, p.y + 80, 18, 18);
+      }
+      if ((noise & 31) === 22) {
+        px(p.x + 92, p.y + 16, 6, 20, "#6f5434");
+        px(p.x + 88, p.y + 8, 14, 8, "#ffc46b");
+        px(p.x + 90, p.y + 10, 10, 4, "#fff0b0");
       }
     }
   }
@@ -858,54 +867,32 @@ function drawEnemies() {
     ctx.fill();
 
     if (enemy.kind === "slime") {
-      ctx.fillStyle = "#7ccf73";
-      ctx.strokeStyle = "#2f6f31";
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, r, Math.PI, Math.PI * 2);
-      ctx.lineTo(p.x + r, p.y + r * 0.25);
-      ctx.arc(p.x, p.y + r * 0.2, r, 0, Math.PI, true);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "rgba(245,255,247,0.75)";
-      ctx.fillRect(p.x - 4, p.y - r * 0.45, 8, 5);
+      px(p.x - 12, p.y - 6, 24, 18, "#5fae57");
+      px(p.x - 10, p.y - 12, 20, 8, "#86d47e");
+      px(p.x - 8, p.y - 16, 16, 6, "#b8efb3");
+      px(p.x - 7, p.y - 4, 3, 3, "#1f2937");
+      px(p.x + 4, p.y - 4, 3, 3, "#1f2937");
+      px(p.x - 3, p.y + 1, 6, 2, "#2f6f31");
     } else if (enemy.kind === "beast") {
-      ctx.fillStyle = "#8b5e34";
-      ctx.strokeStyle = "#d6b17b";
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - r);
-      ctx.lineTo(p.x + r, p.y);
-      ctx.lineTo(p.x + r * 0.65, p.y + r);
-      ctx.lineTo(p.x - r * 0.65, p.y + r);
-      ctx.lineTo(p.x - r, p.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#d5b989";
-      ctx.fillRect(p.x - 4, p.y - r * 0.72, 3, 7);
-      ctx.fillRect(p.x + 1, p.y - r * 0.72, 3, 7);
+      px(p.x - 12, p.y - 14, 24, 8, "#967246");
+      px(p.x - 16, p.y - 6, 32, 18, "#7b5532");
+      px(p.x - 18, p.y - 8, 6, 8, "#d6b17b");
+      px(p.x + 12, p.y - 8, 6, 8, "#d6b17b");
+      px(p.x - 8, p.y + 12, 6, 8, "#59422a");
+      px(p.x + 2, p.y + 12, 6, 8, "#59422a");
+      px(p.x - 6, p.y - 2, 4, 3, "#f4ddba");
+      px(p.x + 2, p.y - 2, 4, 3, "#f4ddba");
+      px(p.x - 5, p.y + 2, 10, 2, "#3d2b1a");
     } else {
-      ctx.fillStyle = "#5b2c83";
-      ctx.strokeStyle = "#b197fc";
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - r);
-      ctx.lineTo(p.x + r * 0.82, p.y - r * 0.3);
-      ctx.lineTo(p.x + r * 0.7, p.y + r);
-      ctx.lineTo(p.x - r * 0.7, p.y + r);
-      ctx.lineTo(p.x - r * 0.82, p.y - r * 0.3);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#dbc6ff";
-      ctx.fillRect(p.x - 5, p.y - r * 0.8, 4, 6);
-      ctx.fillRect(p.x + 1, p.y - r * 0.8, 4, 6);
+      px(p.x - 12, p.y - 18, 24, 10, "#6d39a0");
+      px(p.x - 16, p.y - 8, 32, 24, "#4f2378");
+      px(p.x - 20, p.y - 14, 8, 12, "#c24444");
+      px(p.x + 12, p.y - 14, 8, 12, "#c24444");
+      px(p.x - 8, p.y + 16, 6, 8, "#352048");
+      px(p.x + 2, p.y + 16, 6, 8, "#352048");
+      px(p.x - 6, p.y - 6, 4, 4, "#ff8f8f");
+      px(p.x + 2, p.y - 6, 4, 4, "#ff8f8f");
     }
-
-    ctx.fillStyle = "#1f2937";
-    ctx.beginPath();
-    ctx.arc(p.x - r * 0.22, p.y - r * 0.06, r * 0.1, 0, Math.PI * 2);
-    ctx.arc(p.x + r * 0.22, p.y - r * 0.06, r * 0.1, 0, Math.PI * 2);
-    ctx.fill();
 
     ctx.fillStyle = "#3d4252";
     ctx.fillRect(p.x - r, p.y - r - 12, r * 2, 5);
@@ -951,58 +938,33 @@ function drawPlayer() {
   ctx.ellipse(HALF_W, HALF_H + 23, 25, 12, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = "#4a101b";
-  ctx.fillRect(HALF_W - 13, HALF_H + 4, 26, 18);
-  ctx.fillStyle = "#7b1e2b";
-  ctx.beginPath();
-  ctx.moveTo(HALF_W, HALF_H + 18);
-  ctx.lineTo(HALF_W - 18, HALF_H - 8);
-  ctx.lineTo(HALF_W + 18, HALF_H - 8);
-  ctx.closePath();
-  ctx.fill();
+  px(HALF_W - 16, HALF_H - 4, 8, 26, "#6b1f2f");
+  px(HALF_W + 8, HALF_H - 4, 8, 26, "#6b1f2f");
+  px(HALF_W - 12, HALF_H + 4, 24, 18, "#7b1e2b");
 
-  ctx.fillStyle = "#a9b8c7";
-  ctx.strokeStyle = "#64748b";
-  ctx.lineWidth = 2;
-  ctx.fillRect(HALF_W - 10, HALF_H - 9, 20, 24);
-  ctx.strokeRect(HALF_W - 10, HALF_H - 9, 20, 24);
-  ctx.fillStyle = "#dbe3ec";
-  ctx.fillRect(HALF_W - 5, HALF_H - 5, 10, 5);
+  px(HALF_W - 10, HALF_H - 10, 20, 24, "#a9b8c7");
+  px(HALF_W - 8, HALF_H - 8, 16, 8, "#dce4ec");
+  px(HALF_W - 6, HALF_H, 12, 12, "#7f93a7");
+  px(HALF_W - 14, HALF_H - 6, 4, 12, "#d7e0ea");
+  px(HALF_W + 10, HALF_H - 6, 4, 12, "#d7e0ea");
 
-  ctx.fillStyle = state.player.flash > 0 ? "#ffd8a8" : "#f2c59c";
-  ctx.beginPath();
-  ctx.arc(HALF_W, HALF_H - 16, 10, 0, Math.PI * 2);
-  ctx.fill();
+  px(HALF_W - 12, HALF_H - 28, 24, 10, "#415168");
+  px(HALF_W - 10, HALF_H - 34, 20, 8, "#5d6e86");
+  px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffd8a8" : "#f2c59c");
+  px(HALF_W - 4, HALF_H - 18, 8, 4, "#e6b58b");
 
-  ctx.fillStyle = "#44536b";
-  ctx.beginPath();
-  ctx.arc(HALF_W, HALF_H - 19, 12, Math.PI, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#5f718d";
-  ctx.fillRect(HALF_W - 8, HALF_H - 25, 16, 4);
+  px(HALF_W - 6, HALF_H + 14, 5, 12, "#3f4a57");
+  px(HALF_W + 1, HALF_H + 14, 5, 12, "#3f4a57");
+  px(HALF_W - 8, HALF_H + 26, 6, 6, "#7c8b98");
+  px(HALF_W + 2, HALF_H + 26, 6, 6, "#7c8b98");
 
-  ctx.strokeStyle = "#d7dee7";
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  ctx.moveTo(HALF_W + 12, HALF_H - 4);
-  ctx.lineTo(HALF_W + 26, HALF_H - 20);
-  ctx.stroke();
-  ctx.fillStyle = "#f8fafc";
-  ctx.beginPath();
-  ctx.moveTo(HALF_W + 26, HALF_H - 20);
-  ctx.lineTo(HALF_W + 34, HALF_H - 26);
-  ctx.lineTo(HALF_W + 24, HALF_H - 28);
-  ctx.closePath();
-  ctx.fill();
+  px(HALF_W + 14, HALF_H - 8, 4, 18, "#8b5e34");
+  px(HALF_W + 18, HALF_H - 22, 6, 20, "#d7dee7");
+  px(HALF_W + 24, HALF_H - 28, 10, 6, "#f8fafc");
 
-  ctx.fillStyle = "#8a6a3d";
-  ctx.strokeStyle = "#d6c08d";
-  ctx.beginPath();
-  ctx.ellipse(HALF_W - 18, HALF_H + 4, 9, 12, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = "#e7d4a8";
-  ctx.fillRect(HALF_W - 21, HALF_H, 6, 4);
+  px(HALF_W - 24, HALF_H - 2, 10, 18, "#8a6a3d");
+  px(HALF_W - 22, HALF_H, 6, 10, "#d6c08d");
+  px(HALF_W - 20, HALF_H - 6, 4, 4, "#e7d4a8");
 }
 
 function drawTexts() {
