@@ -7,6 +7,10 @@ const HEIGHT = canvas.height;
 const HALF_W = WIDTH / 2;
 const HALF_H = HEIGHT / 2;
 const CAMERA_SCALE = 0.72;
+const BUILD_VERSION = "v2026.04.18-0851";
+const BUILD_DEPLOYED_AT = "2026-04-18 08:51 KST";
+const buildVersionNode = document.getElementById("build-version");
+const buildDateNode = document.getElementById("build-date");
 
 const keys = new Set();
 let lastHorizontalKey = null;
@@ -39,6 +43,9 @@ const distance = (ax, ay, bx, by) => Math.hypot(bx - ax, by - ay);
 const tileNoise = (x, y) => Math.abs((x * 92821) ^ (y * 68917) ^ 0x45d9f3b);
 
 const state = {};
+
+if (buildVersionNode) buildVersionNode.textContent = `Version ${BUILD_VERSION}`;
+if (buildDateNode) buildDateNode.textContent = `Deployed ${BUILD_DEPLOYED_AT}`;
 
 const CLASS_KEYS = ["warrior", "archer", "mage", "rogue"];
 const CLASS_DEFS = {
@@ -127,7 +134,7 @@ function ensureAudio() {
   audioState.bgmGain = audioState.ctx.createGain();
   audioState.master.gain.value = 0.23;
   audioState.sfxGain.gain.value = 1.08;
-  audioState.bgmGain.gain.value = 0.4;
+  audioState.bgmGain.gain.value = 0.68;
   audioState.sfxGain.connect(audioState.master);
   audioState.bgmGain.connect(audioState.master);
   audioState.master.connect(audioState.ctx.destination);
@@ -211,17 +218,19 @@ function scheduleBgm() {
     const beatInBar = step % 4;
     const t0 = audioState.bgmNextTime;
 
-    playTone({ freq: bar.bass, endFreq: bar.bass * 0.98, duration: beat * 0.9, type: "triangle", gain: 0.038, when: t0 - ctxAudio.currentTime, bus: "bgm" });
+    playTone({ freq: bar.bass, endFreq: bar.bass * 0.98, duration: beat * 0.92, type: "triangle", gain: 0.055, when: t0 - ctxAudio.currentTime, bus: "bgm" });
+    playTone({ freq: bar.bass * 0.5, endFreq: bar.bass * 0.49, duration: beat * 0.75, type: "sine", gain: 0.04, when: t0 - ctxAudio.currentTime, bus: "bgm" });
+    playNoise({ duration: beat * 0.12, gain: beatInBar === 1 || beatInBar === 3 ? 0.018 : 0.012, filter: beatInBar === 1 || beatInBar === 3 ? 1500 : 620, when: t0 - ctxAudio.currentTime + 0.01, bus: "bgm" });
     if (beatInBar === 0 || beatInBar === 2) {
       for (const chordFreq of bar.chord) {
-        playTone({ freq: chordFreq, endFreq: chordFreq, duration: beat * 1.7, type: "sine", gain: 0.014, when: t0 - ctxAudio.currentTime, bus: "bgm" });
+        playTone({ freq: chordFreq, endFreq: chordFreq, duration: beat * 1.7, type: "sine", gain: 0.022, when: t0 - ctxAudio.currentTime, bus: "bgm" });
       }
     }
 
     const leadFreq = bar.lead[beatInBar % bar.lead.length] * (beatInBar === 3 ? 1.122 : 1);
-    playTone({ freq: leadFreq, endFreq: leadFreq * 1.01, duration: beat * 0.55, type: "square", gain: 0.018, when: t0 - ctxAudio.currentTime + 0.03, bus: "bgm" });
+    playTone({ freq: leadFreq, endFreq: leadFreq * 1.01, duration: beat * 0.62, type: "square", gain: 0.03, when: t0 - ctxAudio.currentTime + 0.03, bus: "bgm" });
     if (beatInBar === 1) {
-      playTone({ freq: leadFreq * 0.75, endFreq: leadFreq * 0.76, duration: beat * 0.42, type: "triangle", gain: 0.013, when: t0 - ctxAudio.currentTime + 0.16, bus: "bgm" });
+      playTone({ freq: leadFreq * 0.75, endFreq: leadFreq * 0.76, duration: beat * 0.42, type: "triangle", gain: 0.02, when: t0 - ctxAudio.currentTime + 0.16, bus: "bgm" });
     }
 
     audioState.bgmNextTime += beat;
@@ -1257,9 +1266,9 @@ function drawHud() {
   const classDef = currentClassDef();
   ctx.textAlign = "left";
   ctx.fillStyle = "rgba(8, 18, 12, 0.82)";
-  ctx.fillRect(18, 18, 360, 156);
+  ctx.fillRect(18, 18, 360, 188);
   ctx.strokeStyle = "rgba(156, 211, 181, 0.2)";
-  ctx.strokeRect(18, 18, 360, 156);
+  ctx.strokeRect(18, 18, 360, 188);
 
   ctx.fillStyle = "#fff8db";
   ctx.font = "bold 24px Segoe UI";
@@ -1290,7 +1299,21 @@ function drawHud() {
   ctx.fillRect(32, 172, 220 * xpRatio, 12);
   ctx.fillStyle = "#dbe4ff";
   ctx.fillText(`XP ${state.progress.xp}/${state.progress.xpToNext}`, 260, 182);
+  ctx.fillStyle = audioReady ? "#9ce5b0" : "#ffe7a1";
+  ctx.font = "13px Segoe UI";
+  ctx.fillText(audioReady ? "BGM on" : "Click or press a key to start BGM", 32, 206);
   ctx.shadowOffsetY = 0;
+}
+
+function drawBuildStamp() {
+  ctx.textAlign = "right";
+  ctx.fillStyle = "rgba(8, 18, 12, 0.76)";
+  ctx.fillRect(WIDTH - 292, HEIGHT - 54, 274, 36);
+  ctx.strokeStyle = "rgba(156, 211, 181, 0.18)";
+  ctx.strokeRect(WIDTH - 292, HEIGHT - 54, 274, 36);
+  ctx.fillStyle = "#dcebdd";
+  ctx.font = "12px Segoe UI";
+  ctx.fillText(`${BUILD_VERSION}  |  ${BUILD_DEPLOYED_AT}`, WIDTH - 28, HEIGHT - 30);
 }
 
 function drawLevelUpOverlay() {
@@ -1466,6 +1489,7 @@ function draw() {
   drawPlayer();
   drawTexts();
   if (!state.flags.classSelect) drawHud();
+  drawBuildStamp();
   if (state.flags.classSelect) drawClassSelectOverlay();
   if (state.flags.levelUp) drawLevelUpOverlay();
   if (state.flags.gameOver) drawGameOverOverlay();
