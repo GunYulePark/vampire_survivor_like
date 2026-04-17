@@ -15,6 +15,12 @@ let lastTime = performance.now();
 let cardHitboxes = [];
 let classHitboxes = [];
 let audioReady = false;
+const mouseState = {
+  x: HALF_W,
+  y: HALF_H,
+  inside: false,
+  wheelSelection: -1,
+};
 
 const audioState = {
   ctx: null,
@@ -87,6 +93,22 @@ function applyOverrides(target, overrides = {}) {
   Object.entries(overrides).forEach(([key, value]) => {
     target[key] = value;
   });
+}
+
+function getCanvasPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / rect.width) * WIDTH,
+    y: ((event.clientY - rect.top) / rect.height) * HEIGHT,
+  };
+}
+
+function updateMouse(event) {
+  const point = getCanvasPoint(event);
+  mouseState.x = point.x;
+  mouseState.y = point.y;
+  mouseState.inside = true;
+  return point;
 }
 
 function ensureAudio() {
@@ -262,6 +284,7 @@ function playSfx(name) {
 function resetGame(classKey = state.heroClass ?? null) {
   state.heroClass = classKey;
   const classDef = classKey ? CLASS_DEFS[classKey] : null;
+  mouseState.wheelSelection = -1;
 
   state.player = {
     x: 0,
@@ -1240,10 +1263,13 @@ function drawLevelUpOverlay() {
   state.upgrades.forEach((upgrade, index) => {
     const x = startX + index * (cardW + gap);
     const y = 180;
+    const hovered =
+      (mouseState.inside && mouseState.x >= x && mouseState.x <= x + cardW && mouseState.y >= y && mouseState.y <= y + 250) ||
+      mouseState.wheelSelection === index;
     ctx.fillStyle = "rgba(17, 30, 24, 0.95)";
     ctx.fillRect(x, y, cardW, 250);
-    ctx.strokeStyle = "#9ce5b0";
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = hovered ? "#ffe066" : "#9ce5b0";
+    ctx.lineWidth = hovered ? 4 : 2;
     ctx.strokeRect(x, y, cardW, 250);
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 22px Segoe UI";
@@ -1253,7 +1279,7 @@ function drawLevelUpOverlay() {
     wrapText(upgrade.desc, x + cardW / 2, y + 118, 220, 26);
     ctx.fillStyle = "#9ce5b0";
     ctx.font = "15px Segoe UI";
-    ctx.fillText("Choose", x + cardW / 2, y + 216);
+    ctx.fillText(hovered ? "Ready" : "Choose", x + cardW / 2, y + 216);
     cardHitboxes.push({ x, y, w: cardW, h: 250 });
   });
 }
@@ -1280,10 +1306,13 @@ function drawClassSelectOverlay() {
     const classDef = CLASS_DEFS[classKey];
     const x = startX + index * (cardW + gap);
     const y = 160;
+    const hovered =
+      (mouseState.inside && mouseState.x >= x && mouseState.x <= x + cardW && mouseState.y >= y && mouseState.y <= y + cardH) ||
+      mouseState.wheelSelection === index;
     ctx.fillStyle = "rgba(15, 26, 20, 0.96)";
     ctx.fillRect(x, y, cardW, cardH);
-    ctx.strokeStyle = classDef.color;
-    ctx.lineWidth = 3;
+    ctx.strokeStyle = hovered ? "#ffe066" : classDef.color;
+    ctx.lineWidth = hovered ? 5 : 3;
     ctx.strokeRect(x, y, cardW, cardH);
 
     ctx.fillStyle = classDef.color;
@@ -1340,6 +1369,10 @@ function drawClassSelectOverlay() {
     ctx.fillText(`HP ${classDef.player.maxHp}  SPD ${classDef.player.speed}`, x + cardW / 2, y + 248);
     ctx.fillStyle = "#9ce5b0";
     ctx.fillText(`Range ${classDef.combat.projectileCount}  Melee ${classDef.combat.meleeDamage}`, x + cardW / 2, y + 272);
+    if (hovered) {
+      ctx.fillStyle = "#ffe7a1";
+      ctx.fillText("Select", x + cardW / 2, y + 252);
+    }
     classHitboxes.push({ x, y, w: cardW, h: cardH, classKey });
   });
 }
@@ -1443,13 +1476,47 @@ window.addEventListener("blur", () => {
   keys.clear();
   lastHorizontalKey = null;
   lastVerticalKey = null;
+  mouseState.inside = false;
+  mouseState.wheelSelection = -1;
 });
+
+canvas.addEventListener("mousemove", (event) => {
+  updateMouse(event);
+  mouseState.wheelSelection = -1;
+});
+
+canvas.addEventListener("mouseenter", (event) => {
+  updateMouse(event);
+});
+
+canvas.addEventListener("mouseleave", () => {
+  mouseState.inside = false;
+  mouseState.wheelSelection = -1;
+});
+
+canvas.addEventListener(
+  "wheel",
+  (event) => {
+    updateMouse(event);
+    if (!state.flags.classSelect && !state.flags.levelUp) return;
+    event.preventDefault();
+
+    const listLength = state.flags.classSelect ? CLASS_KEYS.length : state.upgrades.length;
+    if (!listLength) return;
+
+    const direction = event.deltaY > 0 ? 1 : -1;
+    const hoveredIndex = state.flags.classSelect
+      ? classHitboxes.findIndex((box) => mouseState.x >= box.x && mouseState.x <= box.x + box.w && mouseState.y >= box.y && mouseState.y <= box.y + box.h)
+      : cardHitboxes.findIndex((box) => mouseState.x >= box.x && mouseState.x <= box.x + box.w && mouseState.y >= box.y && mouseState.y <= box.y + box.h);
+    const baseIndex = hoveredIndex >= 0 ? hoveredIndex : mouseState.wheelSelection >= 0 ? mouseState.wheelSelection : 0;
+    mouseState.wheelSelection = (baseIndex + direction + listLength) % listLength;
+  },
+  { passive: false }
+);
 
 canvas.addEventListener("click", (event) => {
   ensureAudio();
-  const rect = canvas.getBoundingClientRect();
-  const x = ((event.clientX - rect.left) / rect.width) * WIDTH;
-  const y = ((event.clientY - rect.top) / rect.height) * HEIGHT;
+  const { x, y } = updateMouse(event);
   if (state.flags.classSelect) {
     const picked = classHitboxes.find((box) => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h);
     if (picked) resetGame(picked.classKey);
