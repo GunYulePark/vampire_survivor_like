@@ -13,6 +13,7 @@ let lastHorizontalKey = null;
 let lastVerticalKey = null;
 let lastTime = performance.now();
 let cardHitboxes = [];
+let classHitboxes = [];
 let audioReady = false;
 
 const audioState = {
@@ -33,6 +34,46 @@ const tileNoise = (x, y) => Math.abs((x * 92821) ^ (y * 68917) ^ 0x45d9f3b);
 
 const state = {};
 
+const CLASS_KEYS = ["warrior", "archer", "mage", "rogue"];
+const CLASS_DEFS = {
+  warrior: {
+    name: "Warrior",
+    title: "Iron Vanguard",
+    color: "#ffb36b",
+    description: "High vitality and brutal sword arcs. Starts thick and safe.",
+    tags: { melee: 2.4, survivability: 1.9, ranged: 0.8, magic: 0.75, mobility: 1.0, utility: 1.0 },
+    player: { hp: 24, maxHp: 24, speed: 320, pickupRadius: 210 },
+    combat: { projectileCooldown: 0.38, projectileDamage: 3, meleeCooldown: 0.7, meleeRadius: 102, meleeDamage: 7, chainCooldown: 2.7, burstDamage: 7, meteorDamage: 8 },
+  },
+  archer: {
+    name: "Archer",
+    title: "Falcon Ranger",
+    color: "#8fe388",
+    description: "Fast volleys and broad vision. Dominates early ranged pressure.",
+    tags: { melee: 0.75, survivability: 0.9, ranged: 2.5, magic: 0.85, mobility: 1.3, utility: 1.1 },
+    player: { hp: 17, maxHp: 17, speed: 350, pickupRadius: 220 },
+    combat: { projectileCooldown: 0.24, projectileDamage: 4, projectileSpeed: 820, projectileCount: 2, meleeCooldown: 1.05, meleeDamage: 3, chainCooldown: 2.5, burstCooldown: 4.5 },
+  },
+  mage: {
+    name: "Mage",
+    title: "Astral Scholar",
+    color: "#7dc6ff",
+    description: "Stronger spell core and wider magic bursts. Fragile but explosive.",
+    tags: { melee: 0.65, survivability: 0.8, ranged: 0.95, magic: 2.7, mobility: 1.0, utility: 1.1 },
+    player: { hp: 15, maxHp: 15, speed: 332, pickupRadius: 236 },
+    combat: { projectileCooldown: 0.36, projectileDamage: 2, meleeCooldown: 1.08, meleeDamage: 3, chainCooldown: 1.7, chainDamage: 7, chainTargets: 5, burstCooldown: 3.5, burstDamage: 8, burstRadius: 116, meteorCooldown: 4.9, meteorDamage: 9, meteorRadius: 100 },
+  },
+  rogue: {
+    name: "Rogue",
+    title: "Shadow Fox",
+    color: "#f08cff",
+    description: "Quick feet, twin strikes, and sharp burst windows.",
+    tags: { melee: 1.4, survivability: 0.75, ranged: 1.5, magic: 0.9, mobility: 2.4, utility: 1.0 },
+    player: { hp: 16, maxHp: 16, speed: 392, pickupRadius: 208 },
+    combat: { projectileCooldown: 0.27, projectileDamage: 3, projectileCount: 2, meleeCooldown: 0.58, meleeRadius: 92, meleeDamage: 5, chainCooldown: 2.6, burstCooldown: 4.0, meteorCooldown: 5.5 },
+  },
+};
+
 function px(x, y, w, h, color) {
   ctx.fillStyle = color;
   ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
@@ -40,6 +81,13 @@ function px(x, y, w, h, color) {
 
 const worldUnit = (value) => value * CAMERA_SCALE;
 const worldSize = (value, min = 1) => Math.max(min, Math.round(value * CAMERA_SCALE));
+const currentClassDef = () => CLASS_DEFS[state.heroClass] ?? CLASS_DEFS.warrior;
+
+function applyOverrides(target, overrides = {}) {
+  Object.entries(overrides).forEach(([key, value]) => {
+    target[key] = value;
+  });
+}
 
 function ensureAudio() {
   if (audioState.ctx) {
@@ -211,7 +259,10 @@ function playSfx(name) {
   }
 }
 
-function resetGame() {
+function resetGame(classKey = state.heroClass ?? null) {
+  state.heroClass = classKey;
+  const classDef = classKey ? CLASS_DEFS[classKey] : null;
+
   state.player = {
     x: 0,
     y: 0,
@@ -223,6 +274,7 @@ function resetGame() {
     flash: 0,
     pickupRadius: 200,
   };
+  if (classDef) applyOverrides(state.player, classDef.player);
 
   state.combat = {
     projectileCooldown: 0.32,
@@ -248,6 +300,7 @@ function resetGame() {
     meteorCount: 2,
     potionDropRate: 0.08,
   };
+  if (classDef) applyOverrides(state.combat, classDef.combat);
 
   state.timers = {
     spawn: 0,
@@ -270,6 +323,7 @@ function resetGame() {
   state.flags = {
     gameOver: false,
     levelUp: false,
+    classSelect: !classDef,
   };
 
   state.entities = {
@@ -291,8 +345,10 @@ function resetGame() {
     bolts: 18,
   };
 
-  for (let i = 0; i < 8; i += 1) {
-    spawnEnemy();
+  if (classDef) {
+    for (let i = 0; i < 8; i += 1) {
+      spawnEnemy();
+    }
   }
 
   if (audioState.ctx) {
@@ -431,25 +487,42 @@ function gainXp(value) {
   }
 }
 
+function weightedPick(pool, weights) {
+  const total = weights.reduce((sum, value) => sum + value, 0);
+  let roll = Math.random() * total;
+  for (let i = 0; i < pool.length; i += 1) {
+    roll -= weights[i];
+    if (roll <= 0) return i;
+  }
+  return pool.length - 1;
+}
+
 function openLevelUp() {
   state.flags.levelUp = true;
   playSfx("levelup");
+  const classDef = currentClassDef();
   const pool = [
-    { title: "Rapid Fire", desc: "Blessed bolt cooldown -12%", apply: () => (state.combat.projectileCooldown = Math.max(0.12, state.combat.projectileCooldown * 0.88)) },
-    { title: "Heavy Shots", desc: "Blessed bolt damage +1", apply: () => (state.combat.projectileDamage += 1) },
-    { title: "Multi Shot", desc: "Blessed bolt +1", apply: () => (state.combat.projectileCount = Math.min(5, state.combat.projectileCount + 1)) },
-    { title: "Fleet Footed", desc: "Move speed +24", apply: () => (state.player.speed += 24) },
-    { title: "Vitality", desc: "Max HP +4 and heal 4", apply: () => { state.player.maxHp += 4; state.player.hp = Math.min(state.player.maxHp, state.player.hp + 4); } },
-    { title: "Magnet", desc: "Pickup radius +32", apply: () => (state.player.pickupRadius += 32) },
-    { title: "Blade Ring", desc: "Sword arc damage +2 and radius +10", apply: () => { state.combat.meleeDamage += 2; state.combat.meleeRadius += 10; } },
-    { title: "Quick Slash", desc: "Sword arc cooldown -14%", apply: () => (state.combat.meleeCooldown = Math.max(0.28, state.combat.meleeCooldown * 0.86)) },
-    { title: "Storm Brand", desc: "Lightning damage +2 and +1 jump", apply: () => { state.combat.chainDamage += 2; state.combat.chainTargets = Math.min(7, state.combat.chainTargets + 1); } },
-    { title: "Spell Haste", desc: "Magic cooldowns -10%", apply: () => { state.combat.chainCooldown *= 0.9; state.combat.burstCooldown *= 0.9; state.combat.meteorCooldown *= 0.9; } },
-    { title: "Sacred Seal", desc: "Sanctify damage +2 and radius +12", apply: () => { state.combat.burstDamage += 2; state.combat.burstRadius += 12; } },
-    { title: "Skyfire", desc: "Meteor damage +2, radius +10, +1 strike", apply: () => { state.combat.meteorDamage += 2; state.combat.meteorRadius += 10; state.combat.meteorCount = Math.min(4, state.combat.meteorCount + 1); } },
+    { title: "Rapid Fire", desc: "Blessed bolt cooldown -12%", tag: "ranged", apply: () => (state.combat.projectileCooldown = Math.max(0.12, state.combat.projectileCooldown * 0.88)) },
+    { title: "Heavy Shots", desc: "Blessed bolt damage +1", tag: "ranged", apply: () => (state.combat.projectileDamage += 1) },
+    { title: "Multi Shot", desc: "Blessed bolt +1", tag: "ranged", apply: () => (state.combat.projectileCount = Math.min(5, state.combat.projectileCount + 1)) },
+    { title: "Fleet Footed", desc: "Move speed +24", tag: "mobility", apply: () => (state.player.speed += 24) },
+    { title: "Vitality", desc: "Max HP +4 and heal 4", tag: "survivability", apply: () => { state.player.maxHp += 4; state.player.hp = Math.min(state.player.maxHp, state.player.hp + 4); } },
+    { title: "Magnet", desc: "Pickup radius +32", tag: "utility", apply: () => (state.player.pickupRadius += 32) },
+    { title: "Blade Ring", desc: "Sword arc damage +2 and radius +10", tag: "melee", apply: () => { state.combat.meleeDamage += 2; state.combat.meleeRadius += 10; } },
+    { title: "Quick Slash", desc: "Sword arc cooldown -14%", tag: "melee", apply: () => (state.combat.meleeCooldown = Math.max(0.28, state.combat.meleeCooldown * 0.86)) },
+    { title: "Storm Brand", desc: "Lightning damage +2 and +1 jump", tag: "magic", apply: () => { state.combat.chainDamage += 2; state.combat.chainTargets = Math.min(7, state.combat.chainTargets + 1); } },
+    { title: "Spell Haste", desc: "Magic cooldowns -10%", tag: "magic", apply: () => { state.combat.chainCooldown *= 0.9; state.combat.burstCooldown *= 0.9; state.combat.meteorCooldown *= 0.9; } },
+    { title: "Sacred Seal", desc: "Sanctify damage +2 and radius +12", tag: "magic", apply: () => { state.combat.burstDamage += 2; state.combat.burstRadius += 12; } },
+    { title: "Skyfire", desc: "Meteor damage +2, radius +10, +1 strike", tag: "magic", apply: () => { state.combat.meteorDamage += 2; state.combat.meteorRadius += 10; state.combat.meteorCount = Math.min(4, state.combat.meteorCount + 1); } },
   ];
-  const shuffled = [...pool].sort(() => Math.random() - 0.5);
-  state.upgrades = shuffled.slice(0, 3);
+  const available = [...pool];
+  const picked = [];
+  while (available.length && picked.length < 3) {
+    const weights = available.map((upgrade) => classDef.tags[upgrade.tag] ?? 1);
+    const index = weightedPick(available, weights);
+    picked.push(available.splice(index, 1)[0]);
+  }
+  state.upgrades = picked;
 }
 
 function applyUpgrade(index) {
@@ -723,7 +796,7 @@ function update(dt) {
   state.player.flash = Math.max(0, state.player.flash - dt);
   state.combat.meleeFlash = Math.max(0, state.combat.meleeFlash - dt);
 
-  if (state.flags.levelUp || state.flags.gameOver) {
+  if (state.flags.classSelect || state.flags.levelUp || state.flags.gameOver) {
     updateEffects(dt);
     return;
   }
@@ -1010,6 +1083,7 @@ function drawProjectiles() {
 }
 
 function drawPlayer() {
+  const classKey = state.heroClass ?? "warrior";
   ctx.strokeStyle = "rgba(108, 196, 161, 0.25)";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -1020,34 +1094,81 @@ function drawPlayer() {
   ctx.beginPath();
   ctx.ellipse(HALF_W, HALF_H + 23, 25, 12, 0, 0, Math.PI * 2);
   ctx.fill();
-
-  px(HALF_W - 16, HALF_H - 4, 8, 26, "#6b1f2f");
-  px(HALF_W + 8, HALF_H - 4, 8, 26, "#6b1f2f");
-  px(HALF_W - 12, HALF_H + 4, 24, 18, "#7b1e2b");
-
-  px(HALF_W - 10, HALF_H - 10, 20, 24, "#a9b8c7");
-  px(HALF_W - 8, HALF_H - 8, 16, 8, "#dce4ec");
-  px(HALF_W - 6, HALF_H, 12, 12, "#7f93a7");
-  px(HALF_W - 14, HALF_H - 6, 4, 12, "#d7e0ea");
-  px(HALF_W + 10, HALF_H - 6, 4, 12, "#d7e0ea");
-
-  px(HALF_W - 12, HALF_H - 28, 24, 10, "#415168");
-  px(HALF_W - 10, HALF_H - 34, 20, 8, "#5d6e86");
-  px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffd8a8" : "#f2c59c");
-  px(HALF_W - 4, HALF_H - 18, 8, 4, "#e6b58b");
-
-  px(HALF_W - 6, HALF_H + 14, 5, 12, "#3f4a57");
-  px(HALF_W + 1, HALF_H + 14, 5, 12, "#3f4a57");
-  px(HALF_W - 8, HALF_H + 26, 6, 6, "#7c8b98");
-  px(HALF_W + 2, HALF_H + 26, 6, 6, "#7c8b98");
-
-  px(HALF_W + 14, HALF_H - 8, 4, 18, "#8b5e34");
-  px(HALF_W + 18, HALF_H - 22, 6, 20, "#d7dee7");
-  px(HALF_W + 24, HALF_H - 28, 10, 6, "#f8fafc");
-
-  px(HALF_W - 24, HALF_H - 2, 10, 18, "#8a6a3d");
-  px(HALF_W - 22, HALF_H, 6, 10, "#d6c08d");
-  px(HALF_W - 20, HALF_H - 6, 4, 4, "#e7d4a8");
+  if (classKey === "warrior") {
+    px(HALF_W - 16, HALF_H - 4, 8, 26, "#6b1f2f");
+    px(HALF_W + 8, HALF_H - 4, 8, 26, "#6b1f2f");
+    px(HALF_W - 12, HALF_H + 4, 24, 18, "#7b1e2b");
+    px(HALF_W - 10, HALF_H - 10, 20, 24, "#a9b8c7");
+    px(HALF_W - 8, HALF_H - 8, 16, 8, "#dce4ec");
+    px(HALF_W - 6, HALF_H, 12, 12, "#7f93a7");
+    px(HALF_W - 14, HALF_H - 6, 4, 12, "#d7e0ea");
+    px(HALF_W + 10, HALF_H - 6, 4, 12, "#d7e0ea");
+    px(HALF_W - 12, HALF_H - 28, 24, 10, "#415168");
+    px(HALF_W - 10, HALF_H - 34, 20, 8, "#5d6e86");
+    px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffd8a8" : "#f2c59c");
+    px(HALF_W - 4, HALF_H - 18, 8, 4, "#e6b58b");
+    px(HALF_W - 6, HALF_H + 14, 5, 12, "#3f4a57");
+    px(HALF_W + 1, HALF_H + 14, 5, 12, "#3f4a57");
+    px(HALF_W - 8, HALF_H + 26, 6, 6, "#7c8b98");
+    px(HALF_W + 2, HALF_H + 26, 6, 6, "#7c8b98");
+    px(HALF_W + 14, HALF_H - 8, 4, 18, "#8b5e34");
+    px(HALF_W + 18, HALF_H - 22, 6, 20, "#d7dee7");
+    px(HALF_W + 24, HALF_H - 28, 10, 6, "#f8fafc");
+    px(HALF_W - 24, HALF_H - 2, 10, 18, "#8a6a3d");
+    px(HALF_W - 22, HALF_H, 6, 10, "#d6c08d");
+    px(HALF_W - 20, HALF_H - 6, 4, 4, "#e7d4a8");
+  } else if (classKey === "archer") {
+    px(HALF_W - 14, HALF_H - 6, 8, 24, "#365733");
+    px(HALF_W + 6, HALF_H - 6, 8, 24, "#365733");
+    px(HALF_W - 10, HALF_H + 2, 20, 18, "#4b7a46");
+    px(HALF_W - 8, HALF_H - 8, 16, 22, "#9c6f3c");
+    px(HALF_W - 12, HALF_H - 28, 24, 8, "#6f8c52");
+    px(HALF_W - 10, HALF_H - 34, 20, 8, "#93b56a");
+    px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffd8a8" : "#efc79d");
+    px(HALF_W - 7, HALF_H - 4, 14, 6, "#b1824a");
+    px(HALF_W - 6, HALF_H + 14, 5, 12, "#4a3826");
+    px(HALF_W + 1, HALF_H + 14, 5, 12, "#4a3826");
+    px(HALF_W - 8, HALF_H + 26, 6, 6, "#6d5336");
+    px(HALF_W + 2, HALF_H + 26, 6, 6, "#6d5336");
+    px(HALF_W + 18, HALF_H - 16, 4, 34, "#90653a");
+    px(HALF_W + 12, HALF_H - 14, 6, 6, "#d8c089");
+    px(HALF_W + 22, HALF_H - 18, 4, 4, "#d8c089");
+    px(HALF_W - 24, HALF_H - 10, 4, 28, "#8a5e34");
+    px(HALF_W - 22, HALF_H - 14, 2, 6, "#f4e7c3");
+  } else if (classKey === "mage") {
+    px(HALF_W - 16, HALF_H - 2, 8, 24, "#263d7c");
+    px(HALF_W + 8, HALF_H - 2, 8, 24, "#263d7c");
+    px(HALF_W - 14, HALF_H + 2, 28, 22, "#3652a1");
+    px(HALF_W - 10, HALF_H - 10, 20, 20, "#5b79d1");
+    px(HALF_W - 14, HALF_H - 28, 28, 10, "#4966b6");
+    px(HALF_W - 10, HALF_H - 36, 20, 10, "#83a5ff");
+    px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffe0b9" : "#f0c8a2");
+    px(HALF_W - 6, HALF_H - 16, 12, 4, "#d9a97d");
+    px(HALF_W - 6, HALF_H + 16, 5, 12, "#1f2b59");
+    px(HALF_W + 1, HALF_H + 16, 5, 12, "#1f2b59");
+    px(HALF_W - 8, HALF_H + 28, 6, 6, "#7e91c4");
+    px(HALF_W + 2, HALF_H + 28, 6, 6, "#7e91c4");
+    px(HALF_W + 18, HALF_H - 22, 5, 34, "#8b6b3f");
+    px(HALF_W + 14, HALF_H - 30, 13, 10, "#8ce9ff");
+    px(HALF_W + 16, HALF_H - 28, 9, 6, "#d7fbff");
+  } else if (classKey === "rogue") {
+    px(HALF_W - 15, HALF_H - 6, 8, 24, "#38203f");
+    px(HALF_W + 7, HALF_H - 6, 8, 24, "#38203f");
+    px(HALF_W - 11, HALF_H + 0, 22, 18, "#5e2a66");
+    px(HALF_W - 10, HALF_H - 12, 20, 22, "#7d3c89");
+    px(HALF_W - 14, HALF_H - 28, 28, 8, "#2f2537");
+    px(HALF_W - 10, HALF_H - 34, 20, 8, "#584061");
+    px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffd9bb" : "#f1c39f");
+    px(HALF_W - 4, HALF_H - 18, 8, 3, "#d99d7b");
+    px(HALF_W - 6, HALF_H + 14, 5, 12, "#251927");
+    px(HALF_W + 1, HALF_H + 14, 5, 12, "#251927");
+    px(HALF_W - 8, HALF_H + 26, 6, 6, "#6b5a75");
+    px(HALF_W + 2, HALF_H + 26, 6, 6, "#6b5a75");
+    px(HALF_W - 22, HALF_H - 8, 4, 20, "#cdd4dc");
+    px(HALF_W - 18, HALF_H - 12, 4, 16, "#8a97a8");
+    px(HALF_W + 18, HALF_H - 8, 4, 20, "#cdd4dc");
+    px(HALF_W + 22, HALF_H - 12, 4, 16, "#8a97a8");
+  }
 }
 
 function drawTexts() {
@@ -1061,6 +1182,7 @@ function drawTexts() {
 }
 
 function drawHud() {
+  const classDef = currentClassDef();
   ctx.textAlign = "left";
   ctx.fillStyle = "rgba(8, 18, 12, 0.82)";
   ctx.fillRect(18, 18, 360, 156);
@@ -1074,8 +1196,8 @@ function drawHud() {
   ctx.shadowOffsetY = 2;
   ctx.fillText(`Time ${formatTime(state.progress.time)}`, 32, 48);
   ctx.font = "16px Segoe UI";
-  ctx.fillStyle = "#d8f5d0";
-  ctx.fillText(`Hero Lv ${state.progress.level}   Monsters ${state.progress.kills}`, 32, 74);
+  ctx.fillStyle = classDef.color;
+  ctx.fillText(`${classDef.name}   Lv ${state.progress.level}   Monsters ${state.progress.kills}`, 32, 74);
   ctx.fillStyle = "#d7e3d1";
   ctx.fillText(`Bolt ${state.combat.projectileCooldown.toFixed(2)}s  Sword ${state.combat.meleeCooldown.toFixed(2)}s`, 32, 98);
   ctx.fillText(`Storm ${state.combat.chainCooldown.toFixed(2)}s  Sanctify ${state.combat.burstCooldown.toFixed(2)}s`, 32, 120);
@@ -1136,6 +1258,92 @@ function drawLevelUpOverlay() {
   });
 }
 
+function drawClassSelectOverlay() {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.68)";
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ffe7a1";
+  ctx.font = "bold 38px Segoe UI";
+  ctx.fillText("Choose Your Class", HALF_W, 84);
+  ctx.fillStyle = "#dcebdd";
+  ctx.font = "18px Segoe UI";
+  ctx.fillText("Press 1 / 2 / 3 / 4 or click a card", HALF_W, 116);
+
+  classHitboxes = [];
+  const cardW = 220;
+  const cardH = 290;
+  const gap = 20;
+  const total = cardW * 4 + gap * 3;
+  const startX = (WIDTH - total) / 2;
+
+  CLASS_KEYS.forEach((classKey, index) => {
+    const classDef = CLASS_DEFS[classKey];
+    const x = startX + index * (cardW + gap);
+    const y = 160;
+    ctx.fillStyle = "rgba(15, 26, 20, 0.96)";
+    ctx.fillRect(x, y, cardW, cardH);
+    ctx.strokeStyle = classDef.color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, cardW, cardH);
+
+    ctx.fillStyle = classDef.color;
+    ctx.font = "bold 24px Segoe UI";
+    ctx.fillText(`${index + 1}. ${classDef.name}`, x + cardW / 2, y + 38);
+    ctx.fillStyle = "#f0f8ff";
+    ctx.font = "15px Segoe UI";
+    ctx.fillText(classDef.title, x + cardW / 2, y + 62);
+
+    const cx = x + cardW / 2;
+    const cy = y + 124;
+    ctx.fillStyle = "rgba(0,0,0,0.34)";
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 34, 26, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (classKey === "warrior") {
+      px(cx - 14, cy - 8, 8, 24, "#6b1f2f");
+      px(cx + 6, cy - 8, 8, 24, "#6b1f2f");
+      px(cx - 10, cy - 2, 20, 18, "#a9b8c7");
+      px(cx - 10, cy - 26, 20, 8, "#5d6e86");
+      px(cx - 8, cy - 18, 16, 10, "#f2c59c");
+      px(cx + 18, cy - 8, 4, 20, "#8b5e34");
+      px(cx + 22, cy - 22, 6, 18, "#d7dee7");
+    } else if (classKey === "archer") {
+      px(cx - 14, cy - 8, 8, 24, "#365733");
+      px(cx + 6, cy - 8, 8, 24, "#365733");
+      px(cx - 10, cy - 4, 20, 18, "#4b7a46");
+      px(cx - 10, cy - 26, 20, 8, "#93b56a");
+      px(cx - 8, cy - 18, 16, 10, "#efc79d");
+      px(cx + 18, cy - 16, 4, 34, "#90653a");
+    } else if (classKey === "mage") {
+      px(cx - 14, cy - 6, 8, 24, "#263d7c");
+      px(cx + 6, cy - 6, 8, 24, "#263d7c");
+      px(cx - 12, cy - 4, 24, 20, "#3652a1");
+      px(cx - 10, cy - 28, 20, 10, "#83a5ff");
+      px(cx - 8, cy - 18, 16, 10, "#f0c8a2");
+      px(cx + 18, cy - 22, 5, 34, "#8b6b3f");
+      px(cx + 14, cy - 30, 13, 10, "#8ce9ff");
+    } else if (classKey === "rogue") {
+      px(cx - 14, cy - 8, 8, 24, "#38203f");
+      px(cx + 6, cy - 8, 8, 24, "#38203f");
+      px(cx - 10, cy - 4, 20, 18, "#5e2a66");
+      px(cx - 10, cy - 28, 20, 8, "#584061");
+      px(cx - 8, cy - 18, 16, 10, "#f1c39f");
+      px(cx - 20, cy - 12, 4, 20, "#cdd4dc");
+      px(cx + 18, cy - 12, 4, 20, "#cdd4dc");
+    }
+
+    ctx.fillStyle = "#deefe2";
+    ctx.font = "14px Segoe UI";
+    wrapText(classDef.description, x + cardW / 2, y + 188, 176, 20);
+    ctx.fillStyle = "#b8d5ff";
+    ctx.fillText(`HP ${classDef.player.maxHp}  SPD ${classDef.player.speed}`, x + cardW / 2, y + 248);
+    ctx.fillStyle = "#9ce5b0";
+    ctx.fillText(`Range ${classDef.combat.projectileCount}  Melee ${classDef.combat.meleeDamage}`, x + cardW / 2, y + 272);
+    classHitboxes.push({ x, y, w: cardW, h: cardH, classKey });
+  });
+}
+
 function drawGameOverOverlay() {
   ctx.fillStyle = "rgba(0, 0, 0, 0.58)";
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
@@ -1175,7 +1383,8 @@ function draw() {
   drawEnemies();
   drawPlayer();
   drawTexts();
-  drawHud();
+  if (!state.flags.classSelect) drawHud();
+  if (state.flags.classSelect) drawClassSelectOverlay();
   if (state.flags.levelUp) drawLevelUpOverlay();
   if (state.flags.gameOver) drawGameOverOverlay();
 }
@@ -1204,8 +1413,13 @@ window.addEventListener("keydown", (event) => {
   if (["a", "arrowleft", "d", "arrowright"].includes(key)) lastHorizontalKey = key;
   if (["w", "arrowup", "s", "arrowdown"].includes(key)) lastVerticalKey = key;
 
+  if (state.flags.classSelect && ["1", "2", "3", "4"].includes(key)) {
+    resetGame(CLASS_KEYS[Number(key) - 1]);
+    return;
+  }
+
   if (state.flags.gameOver && key === "r") {
-    resetGame();
+    resetGame(state.heroClass);
     return;
   }
 
@@ -1233,10 +1447,15 @@ window.addEventListener("blur", () => {
 
 canvas.addEventListener("click", (event) => {
   ensureAudio();
-  if (!state.flags.levelUp) return;
   const rect = canvas.getBoundingClientRect();
   const x = ((event.clientX - rect.left) / rect.width) * WIDTH;
   const y = ((event.clientY - rect.top) / rect.height) * HEIGHT;
+  if (state.flags.classSelect) {
+    const picked = classHitboxes.find((box) => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h);
+    if (picked) resetGame(picked.classKey);
+    return;
+  }
+  if (!state.flags.levelUp) return;
   const index = cardHitboxes.findIndex((box) => x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h);
   if (index >= 0) applyUpgrade(index);
 });
