@@ -6,6 +6,7 @@ const WIDTH = canvas.width;
 const HEIGHT = canvas.height;
 const HALF_W = WIDTH / 2;
 const HALF_H = HEIGHT / 2;
+const CAMERA_SCALE = 0.72;
 
 const keys = new Set();
 let lastHorizontalKey = null;
@@ -36,6 +37,9 @@ function px(x, y, w, h, color) {
   ctx.fillStyle = color;
   ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
 }
+
+const worldUnit = (value) => value * CAMERA_SCALE;
+const worldSize = (value, min = 1) => Math.max(min, Math.round(value * CAMERA_SCALE));
 
 function ensureAudio() {
   if (audioState.ctx) {
@@ -280,12 +284,16 @@ function resetGame() {
 
   state.upgrades = [];
   state.limits = {
-    enemies: 70,
+    enemies: 110,
     projectiles: 56,
     texts: 32,
     bursts: 14,
     bolts: 18,
   };
+
+  for (let i = 0; i < 8; i += 1) {
+    spawnEnemy();
+  }
 
   if (audioState.ctx) {
     audioState.bgmStep = 0;
@@ -294,15 +302,20 @@ function resetGame() {
 }
 
 function worldToScreen(x, y) {
-  return { x: x - state.player.x + HALF_W, y: y - state.player.y + HALF_H };
+  return {
+    x: HALF_W + (x - state.player.x) * CAMERA_SCALE,
+    y: HALF_H + (y - state.player.y) * CAMERA_SCALE,
+  };
 }
 
 function visibleBounds(padding = 0) {
+  const halfWorldW = HALF_W / CAMERA_SCALE;
+  const halfWorldH = HALF_H / CAMERA_SCALE;
   return {
-    left: state.player.x - HALF_W - padding,
-    right: state.player.x + HALF_W + padding,
-    top: state.player.y - HALF_H - padding,
-    bottom: state.player.y + HALF_H + padding,
+    left: state.player.x - halfWorldW - padding,
+    right: state.player.x + halfWorldW + padding,
+    top: state.player.y - halfWorldH - padding,
+    bottom: state.player.y + halfWorldH + padding,
   };
 }
 
@@ -719,7 +732,7 @@ function update(dt) {
   updateMovement(dt);
 
   state.timers.spawn += dt;
-  const spawnGap = Math.max(0.22, 0.92 - state.progress.time * 0.005);
+  const spawnGap = Math.max(0.16, 0.58 - state.progress.time * 0.004);
   while (state.timers.spawn >= spawnGap && state.entities.enemies.length < state.limits.enemies) {
     state.timers.spawn -= spawnGap;
     spawnEnemy();
@@ -779,38 +792,39 @@ function drawBackground() {
   for (let tx = startX; tx <= endX; tx += 1) {
     for (let ty = startY; ty <= endY; ty += 1) {
       const p = worldToScreen(tx * tile, ty * tile);
+      const tileSize = worldUnit(tile);
       const noise = tileNoise(tx, ty);
       ctx.fillStyle = (tx + ty) % 2 === 0 ? "#223627" : "#263b2b";
-      ctx.fillRect(p.x, p.y, tile, tile);
+      ctx.fillRect(p.x, p.y, tileSize, tileSize);
       ctx.strokeStyle = "#314935";
-      ctx.strokeRect(p.x, p.y, tile, tile);
+      ctx.strokeRect(p.x, p.y, tileSize, tileSize);
       if ((noise & 7) === 0) {
         ctx.strokeStyle = "#4a5f4d";
-        ctx.strokeRect(p.x + 34, p.y + 34, 60, 60);
+        ctx.strokeRect(p.x + worldUnit(34), p.y + worldUnit(34), worldUnit(60), worldUnit(60));
       }
       if ((noise & 15) === 3) {
         ctx.strokeStyle = "#3f5340";
         ctx.beginPath();
-        ctx.moveTo(p.x + 24, p.y + 26);
-        ctx.lineTo(p.x + 48, p.y + 58);
-        ctx.lineTo(p.x + 76, p.y + 46);
+        ctx.moveTo(p.x + worldUnit(24), p.y + worldUnit(26));
+        ctx.lineTo(p.x + worldUnit(48), p.y + worldUnit(58));
+        ctx.lineTo(p.x + worldUnit(76), p.y + worldUnit(46));
         ctx.stroke();
       }
       if ((noise & 31) === 10) {
-        px(p.x + 18, p.y + 20, 6, 10, "#305239");
-        px(p.x + 24, p.y + 14, 6, 18, "#3d6648");
-        px(p.x + 30, p.y + 20, 6, 10, "#305239");
-        px(p.x + 22, p.y + 12, 10, 4, "#7dc28e");
+        px(p.x + worldUnit(18), p.y + worldUnit(20), worldUnit(6), worldUnit(10), "#305239");
+        px(p.x + worldUnit(24), p.y + worldUnit(14), worldUnit(6), worldUnit(18), "#3d6648");
+        px(p.x + worldUnit(30), p.y + worldUnit(20), worldUnit(6), worldUnit(10), "#305239");
+        px(p.x + worldUnit(22), p.y + worldUnit(12), worldUnit(10), worldUnit(4), "#7dc28e");
       }
       if ((noise & 31) === 18) {
-        px(p.x + 84, p.y + 80, 18, 18, "#4f5a48");
+        px(p.x + worldUnit(84), p.y + worldUnit(80), worldUnit(18), worldUnit(18), "#4f5a48");
         ctx.strokeStyle = "#65735f";
-        ctx.strokeRect(p.x + 84, p.y + 80, 18, 18);
+        ctx.strokeRect(p.x + worldUnit(84), p.y + worldUnit(80), worldUnit(18), worldUnit(18));
       }
       if ((noise & 31) === 22) {
-        px(p.x + 92, p.y + 16, 6, 20, "#6f5434");
-        px(p.x + 88, p.y + 8, 14, 8, "#ffc46b");
-        px(p.x + 90, p.y + 10, 10, 4, "#fff0b0");
+        px(p.x + worldUnit(92), p.y + worldUnit(16), worldUnit(6), worldUnit(20), "#6f5434");
+        px(p.x + worldUnit(88), p.y + worldUnit(8), worldUnit(14), worldUnit(8), "#ffc46b");
+        px(p.x + worldUnit(90), p.y + worldUnit(10), worldUnit(10), worldUnit(4), "#fff0b0");
       }
     }
   }
@@ -847,33 +861,35 @@ function drawBackground() {
 function drawPickups() {
   for (const gem of state.entities.gems) {
     const p = worldToScreen(gem.x, gem.y);
+    const radius = worldUnit(gem.radius);
     ctx.fillStyle = "#67e8a5";
     ctx.strokeStyle = "#d3f9d8";
     ctx.beginPath();
-    ctx.moveTo(p.x, p.y - gem.radius);
-    ctx.lineTo(p.x + gem.radius * 0.8, p.y);
-    ctx.lineTo(p.x, p.y + gem.radius);
-    ctx.lineTo(p.x - gem.radius * 0.8, p.y);
+    ctx.moveTo(p.x, p.y - radius);
+    ctx.lineTo(p.x + radius * 0.8, p.y);
+    ctx.lineTo(p.x, p.y + radius);
+    ctx.lineTo(p.x - radius * 0.8, p.y);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "#effff3";
-    ctx.fillRect(p.x - 1, p.y - gem.radius + 2, 2, 2);
+    ctx.fillRect(p.x - 1, p.y - radius + 2, 2, 2);
   }
 
   for (const potion of state.entities.potions) {
     const p = worldToScreen(potion.x, potion.y);
+    const radius = worldUnit(potion.radius);
     ctx.fillStyle = "#ff85c0";
     ctx.strokeStyle = "#ffd6e7";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(p.x, p.y, potion.radius, potion.radius * 0.82, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x, p.y, radius, radius * 0.82, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "#ffe2f1";
     ctx.fillRect(p.x - 2, p.y - 3, 4, 3);
     ctx.fillStyle = "#8b5e34";
-    ctx.fillRect(p.x - 4, p.y - potion.radius - 4, 8, 7);
+    ctx.fillRect(p.x - 4, p.y - radius - 4, 8, 7);
   }
 }
 
@@ -881,7 +897,7 @@ function drawEffects() {
   for (const burst of state.entities.bursts) {
     const p = worldToScreen(burst.x, burst.y);
     const ratio = 1 - burst.life / burst.maxLife;
-    const radius = Math.max(10, burst.radius * ratio);
+    const radius = Math.max(8, worldUnit(burst.radius) * ratio);
     if (burst.fill) {
       ctx.fillStyle = burst.fill;
       ctx.beginPath();
@@ -897,7 +913,7 @@ function drawEffects() {
 
   if (state.combat.meleeFlash > 0) {
     const ratio = state.combat.meleeFlash / 0.16;
-    const radius = state.combat.meleeRadius + (1 - ratio) * 18;
+    const radius = worldUnit(state.combat.meleeRadius + (1 - ratio) * 18);
     ctx.strokeStyle = "#ffd43b";
     ctx.lineWidth = 3;
     ctx.beginPath();
@@ -908,9 +924,9 @@ function drawEffects() {
   for (const bolt of state.entities.bolts) {
     const a = worldToScreen(bolt.x1, bolt.y1);
     const b = worldToScreen(bolt.x2, bolt.y2);
-    const mx = (a.x + b.x) / 2 + rand(-16, 16);
-    const my = (a.y + b.y) / 2 + rand(-16, 16);
-    const width = Math.max(1, Math.round(bolt.width * (bolt.life / bolt.maxLife)));
+    const mx = (a.x + b.x) / 2 + rand(-worldUnit(16), worldUnit(16));
+    const my = (a.y + b.y) / 2 + rand(-worldUnit(16), worldUnit(16));
+    const width = Math.max(1, Math.round(worldUnit(bolt.width) * (bolt.life / bolt.maxLife)));
     ctx.strokeStyle = bolt.color;
     ctx.lineWidth = width;
     ctx.beginPath();
@@ -927,44 +943,44 @@ function drawEffects() {
 function drawEnemies() {
   for (const enemy of state.entities.enemies) {
     const p = worldToScreen(enemy.x, enemy.y);
-    const r = enemy.radius;
+    const r = worldUnit(enemy.radius);
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.beginPath();
     ctx.ellipse(p.x, p.y + r * 0.8, r * 0.9, r * 0.45, 0, 0, Math.PI * 2);
     ctx.fill();
 
     if (enemy.kind === "slime") {
-      px(p.x - 12, p.y - 6, 24, 18, "#5fae57");
-      px(p.x - 10, p.y - 12, 20, 8, "#86d47e");
-      px(p.x - 8, p.y - 16, 16, 6, "#b8efb3");
-      px(p.x - 7, p.y - 4, 3, 3, "#1f2937");
-      px(p.x + 4, p.y - 4, 3, 3, "#1f2937");
-      px(p.x - 3, p.y + 1, 6, 2, "#2f6f31");
+      px(p.x + worldUnit(-12), p.y + worldUnit(-6), worldUnit(24), worldUnit(18), "#5fae57");
+      px(p.x + worldUnit(-10), p.y + worldUnit(-12), worldUnit(20), worldUnit(8), "#86d47e");
+      px(p.x + worldUnit(-8), p.y + worldUnit(-16), worldUnit(16), worldUnit(6), "#b8efb3");
+      px(p.x + worldUnit(-7), p.y + worldUnit(-4), worldUnit(3), worldUnit(3), "#1f2937");
+      px(p.x + worldUnit(4), p.y + worldUnit(-4), worldUnit(3), worldUnit(3), "#1f2937");
+      px(p.x + worldUnit(-3), p.y + worldUnit(1), worldUnit(6), worldUnit(2), "#2f6f31");
     } else if (enemy.kind === "beast") {
-      px(p.x - 12, p.y - 14, 24, 8, "#967246");
-      px(p.x - 16, p.y - 6, 32, 18, "#7b5532");
-      px(p.x - 18, p.y - 8, 6, 8, "#d6b17b");
-      px(p.x + 12, p.y - 8, 6, 8, "#d6b17b");
-      px(p.x - 8, p.y + 12, 6, 8, "#59422a");
-      px(p.x + 2, p.y + 12, 6, 8, "#59422a");
-      px(p.x - 6, p.y - 2, 4, 3, "#f4ddba");
-      px(p.x + 2, p.y - 2, 4, 3, "#f4ddba");
-      px(p.x - 5, p.y + 2, 10, 2, "#3d2b1a");
+      px(p.x + worldUnit(-12), p.y + worldUnit(-14), worldUnit(24), worldUnit(8), "#967246");
+      px(p.x + worldUnit(-16), p.y + worldUnit(-6), worldUnit(32), worldUnit(18), "#7b5532");
+      px(p.x + worldUnit(-18), p.y + worldUnit(-8), worldUnit(6), worldUnit(8), "#d6b17b");
+      px(p.x + worldUnit(12), p.y + worldUnit(-8), worldUnit(6), worldUnit(8), "#d6b17b");
+      px(p.x + worldUnit(-8), p.y + worldUnit(12), worldUnit(6), worldUnit(8), "#59422a");
+      px(p.x + worldUnit(2), p.y + worldUnit(12), worldUnit(6), worldUnit(8), "#59422a");
+      px(p.x + worldUnit(-6), p.y + worldUnit(-2), worldUnit(4), worldUnit(3), "#f4ddba");
+      px(p.x + worldUnit(2), p.y + worldUnit(-2), worldUnit(4), worldUnit(3), "#f4ddba");
+      px(p.x + worldUnit(-5), p.y + worldUnit(2), worldUnit(10), worldUnit(2), "#3d2b1a");
     } else {
-      px(p.x - 12, p.y - 18, 24, 10, "#6d39a0");
-      px(p.x - 16, p.y - 8, 32, 24, "#4f2378");
-      px(p.x - 20, p.y - 14, 8, 12, "#c24444");
-      px(p.x + 12, p.y - 14, 8, 12, "#c24444");
-      px(p.x - 8, p.y + 16, 6, 8, "#352048");
-      px(p.x + 2, p.y + 16, 6, 8, "#352048");
-      px(p.x - 6, p.y - 6, 4, 4, "#ff8f8f");
-      px(p.x + 2, p.y - 6, 4, 4, "#ff8f8f");
+      px(p.x + worldUnit(-12), p.y + worldUnit(-18), worldUnit(24), worldUnit(10), "#6d39a0");
+      px(p.x + worldUnit(-16), p.y + worldUnit(-8), worldUnit(32), worldUnit(24), "#4f2378");
+      px(p.x + worldUnit(-20), p.y + worldUnit(-14), worldUnit(8), worldUnit(12), "#c24444");
+      px(p.x + worldUnit(12), p.y + worldUnit(-14), worldUnit(8), worldUnit(12), "#c24444");
+      px(p.x + worldUnit(-8), p.y + worldUnit(16), worldUnit(6), worldUnit(8), "#352048");
+      px(p.x + worldUnit(2), p.y + worldUnit(16), worldUnit(6), worldUnit(8), "#352048");
+      px(p.x + worldUnit(-6), p.y + worldUnit(-6), worldUnit(4), worldUnit(4), "#ff8f8f");
+      px(p.x + worldUnit(2), p.y + worldUnit(-6), worldUnit(4), worldUnit(4), "#ff8f8f");
     }
 
     ctx.fillStyle = "#3d4252";
-    ctx.fillRect(p.x - r, p.y - r - 12, r * 2, 5);
+    ctx.fillRect(p.x - r, p.y - r - worldUnit(12), r * 2, worldUnit(5));
     ctx.fillStyle = "#69db7c";
-    ctx.fillRect(p.x - r, p.y - r - 12, r * 2 * Math.max(0, enemy.hp / enemy.maxHp), 5);
+    ctx.fillRect(p.x - r, p.y - r - worldUnit(12), r * 2 * Math.max(0, enemy.hp / enemy.maxHp), worldUnit(5));
   }
 }
 
@@ -973,20 +989,20 @@ function drawProjectiles() {
     const p = worldToScreen(projectile.x, projectile.y);
     const prev = worldToScreen(projectile.x - projectile.vx * 0.03, projectile.y - projectile.vy * 0.03);
     ctx.strokeStyle = "#fff3bf";
-    ctx.lineWidth = 2;
+    ctx.lineWidth = worldSize(2);
     ctx.beginPath();
     ctx.moveTo(prev.x, prev.y);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
     ctx.strokeStyle = "rgba(255, 243, 191, 0.35)";
-    ctx.lineWidth = 5;
+    ctx.lineWidth = worldSize(5);
     ctx.beginPath();
     ctx.moveTo(prev.x, prev.y);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
     ctx.fillStyle = "#f3c969";
     ctx.beginPath();
-    ctx.arc(p.x, p.y, projectile.radius, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, worldUnit(projectile.radius), 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = "#fff8dc";
     ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
@@ -997,7 +1013,7 @@ function drawPlayer() {
   ctx.strokeStyle = "rgba(108, 196, 161, 0.25)";
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(HALF_W, HALF_H, state.player.pickupRadius, 0, Math.PI * 2);
+  ctx.arc(HALF_W, HALF_H, worldUnit(state.player.pickupRadius), 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.fillStyle = "rgba(0,0,0,0.4)";
