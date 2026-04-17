@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sanctuary Survivor</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">GitHub Pages Build</p>
+          <h1>Sanctuary Survivor</h1>
+          <p class="lead">
+            Hold the center as a knight, survive incoming monsters, and grow with automatic skills and level-up choices.
+          </p>
+          <div class="legend">
+            <span><strong>Move</strong> WASD / Arrow Keys</span>
+            <span><strong>Select</strong> 1 / 2 / 3 or Click</span>
+            <span><strong>Restart</strong> R</span>
+          </div>
+        </div>
+        <div class="status-card">
+          <p>Static web version</p>
+          <p>Auto attacks, lightning, sanctify, and meteor included</p>
+        </div>
+      </section>
+
+      <section class="game-shell">
+        <canvas id="game" width="1280" height="720" aria-label="Sanctuary Survivor game canvas"></canvas>
+        <div id="overlay-root"></div>
+      </section>
+    </main>
+
+    <script src="./game.js"></script>
+  </body>
+  </html>
