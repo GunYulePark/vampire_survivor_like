@@ -296,6 +296,9 @@ function resetGame(classKey = state.heroClass ?? null) {
     invuln: 0,
     flash: 0,
     pickupRadius: 200,
+    animTime: 0,
+    moving: false,
+    facing: 1,
   };
   if (classDef) applyOverrides(state.player, classDef.player);
 
@@ -464,6 +467,14 @@ function clusterTarget(searchRadius, maxDistance) {
   return best;
 }
 
+function createEnemy(stats) {
+  return {
+    ...stats,
+    animTime: rand(0, Math.PI * 2),
+    animSeed: rand(0, Math.PI * 2),
+  };
+}
+
 function spawnEnemy() {
   const side = Math.floor(Math.random() * 4);
   const marginX = HALF_W + 120;
@@ -487,12 +498,14 @@ function spawnEnemy() {
 
   const tier = Math.min(4, Math.floor(state.progress.time / 24));
   const roll = Math.random();
-  if (roll < 0.58) {
-    state.entities.enemies.push({ x, y, radius: 14 + tier, speed: 74 + tier * 5, hp: 4 + tier, maxHp: 4 + tier, damage: 1, kind: "slime", xp: 1 });
-  } else if (roll < 0.86) {
-    state.entities.enemies.push({ x, y, radius: 12 + tier, speed: 118 + tier * 7, hp: 3 + tier, maxHp: 3 + tier, damage: 1, kind: "beast", xp: 1 });
+  if (roll < 0.5) {
+    state.entities.enemies.push(createEnemy({ x, y, radius: 14 + tier, speed: 74 + tier * 5, hp: 4 + tier, maxHp: 4 + tier, damage: 1, kind: "slime", xp: 1, motion: "hop" }));
+  } else if (roll < 0.8) {
+    state.entities.enemies.push(createEnemy({ x, y, radius: 12 + tier, speed: 118 + tier * 7, hp: 3 + tier, maxHp: 3 + tier, damage: 1, kind: "beast", xp: 1, motion: "walk" }));
+  } else if (roll < 0.92) {
+    state.entities.enemies.push(createEnemy({ x, y, radius: 15 + tier, speed: 102 + tier * 6, hp: 5 + tier * 1.4, maxHp: 5 + tier * 1.4, damage: 1, kind: "harpy", xp: 2, motion: "fly" }));
   } else {
-    state.entities.enemies.push({ x, y, radius: 20 + tier * 1.4, speed: 64 + tier * 4, hp: 8 + tier * 2.5, maxHp: 8 + tier * 2.5, damage: 1, kind: "demon", xp: 2 });
+    state.entities.enemies.push(createEnemy({ x, y, radius: 20 + tier * 1.4, speed: 64 + tier * 4, hp: 8 + tier * 2.5, maxHp: 8 + tier * 2.5, damage: 1, kind: "demon", xp: 2, motion: "walk" }));
   }
 }
 
@@ -682,9 +695,15 @@ function resolveAxis(negative, positive, preferred) {
 function updateMovement(dt) {
   const moveX = resolveAxis(["a", "arrowleft"], ["d", "arrowright"], lastHorizontalKey);
   const moveY = resolveAxis(["w", "arrowup"], ["s", "arrowdown"], lastVerticalKey);
-  if (!moveX && !moveY) return;
+  if (!moveX && !moveY) {
+    state.player.moving = false;
+    return;
+  }
   const norm = Math.hypot(moveX, moveY) || 1;
   const speed = state.player.speed * dt;
+  state.player.moving = true;
+  state.player.animTime += dt * 10;
+  if (moveX) state.player.facing = moveX < 0 ? -1 : 1;
   state.player.x += (moveX / norm) * speed;
   state.player.y += (moveY / norm) * speed;
 }
@@ -713,6 +732,7 @@ function updateProjectiles(dt) {
 function updateEnemies(dt) {
   const survivors = [];
   for (const enemy of state.entities.enemies) {
+    enemy.animTime += dt * (enemy.motion === "fly" ? 7.5 : enemy.motion === "hop" ? 6 : 9);
     const dx = state.player.x - enemy.x;
     const dy = state.player.y - enemy.y;
     const norm = Math.hypot(dx, dy) || 1;
@@ -1040,43 +1060,63 @@ function drawEnemies() {
   for (const enemy of state.entities.enemies) {
     const p = worldToScreen(enemy.x, enemy.y);
     const r = worldUnit(enemy.radius);
+    const anim = enemy.animTime + enemy.animSeed;
+    const step = Math.sin(anim * 1.4);
+    const hop = enemy.motion === "hop" ? Math.max(0, Math.sin(anim * 2.1)) * worldUnit(10) : 0;
+    const hover = enemy.motion === "fly" ? worldUnit(13) + Math.sin(anim * 2.8) * worldUnit(4) : 0;
+    const bodyY = p.y - hop - hover;
+    const legLiftA = Math.round(step * worldUnit(4));
+    const legLiftB = -legLiftA;
+    const wingLift = Math.round(Math.sin(anim * 6.4) * worldUnit(8));
+    const shadowScale = enemy.motion === "fly" ? 0.65 : 1;
     ctx.fillStyle = "rgba(0,0,0,0.35)";
     ctx.beginPath();
-    ctx.ellipse(p.x, p.y + r * 0.8, r * 0.9, r * 0.45, 0, 0, Math.PI * 2);
+    ctx.ellipse(p.x, p.y + r * 0.8, r * 0.9 * shadowScale, r * 0.45 * shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
 
     if (enemy.kind === "slime") {
-      px(p.x + worldUnit(-12), p.y + worldUnit(-6), worldUnit(24), worldUnit(18), "#5fae57");
-      px(p.x + worldUnit(-10), p.y + worldUnit(-12), worldUnit(20), worldUnit(8), "#86d47e");
-      px(p.x + worldUnit(-8), p.y + worldUnit(-16), worldUnit(16), worldUnit(6), "#b8efb3");
-      px(p.x + worldUnit(-7), p.y + worldUnit(-4), worldUnit(3), worldUnit(3), "#1f2937");
-      px(p.x + worldUnit(4), p.y + worldUnit(-4), worldUnit(3), worldUnit(3), "#1f2937");
-      px(p.x + worldUnit(-3), p.y + worldUnit(1), worldUnit(6), worldUnit(2), "#2f6f31");
+      px(p.x + worldUnit(-12), bodyY + worldUnit(-6), worldUnit(24), worldUnit(18), "#5fae57");
+      px(p.x + worldUnit(-10), bodyY + worldUnit(-12), worldUnit(20), worldUnit(8), "#86d47e");
+      px(p.x + worldUnit(-8), bodyY + worldUnit(-16), worldUnit(16), worldUnit(6), "#b8efb3");
+      px(p.x + worldUnit(-7), bodyY + worldUnit(-4), worldUnit(3), worldUnit(3), "#1f2937");
+      px(p.x + worldUnit(4), bodyY + worldUnit(-4), worldUnit(3), worldUnit(3), "#1f2937");
+      px(p.x + worldUnit(-3), bodyY + worldUnit(1), worldUnit(6), worldUnit(2), "#2f6f31");
     } else if (enemy.kind === "beast") {
-      px(p.x + worldUnit(-12), p.y + worldUnit(-14), worldUnit(24), worldUnit(8), "#967246");
-      px(p.x + worldUnit(-16), p.y + worldUnit(-6), worldUnit(32), worldUnit(18), "#7b5532");
-      px(p.x + worldUnit(-18), p.y + worldUnit(-8), worldUnit(6), worldUnit(8), "#d6b17b");
-      px(p.x + worldUnit(12), p.y + worldUnit(-8), worldUnit(6), worldUnit(8), "#d6b17b");
-      px(p.x + worldUnit(-8), p.y + worldUnit(12), worldUnit(6), worldUnit(8), "#59422a");
-      px(p.x + worldUnit(2), p.y + worldUnit(12), worldUnit(6), worldUnit(8), "#59422a");
-      px(p.x + worldUnit(-6), p.y + worldUnit(-2), worldUnit(4), worldUnit(3), "#f4ddba");
-      px(p.x + worldUnit(2), p.y + worldUnit(-2), worldUnit(4), worldUnit(3), "#f4ddba");
-      px(p.x + worldUnit(-5), p.y + worldUnit(2), worldUnit(10), worldUnit(2), "#3d2b1a");
+      px(p.x + worldUnit(-12), bodyY + worldUnit(-14), worldUnit(24), worldUnit(8), "#967246");
+      px(p.x + worldUnit(-16), bodyY + worldUnit(-6), worldUnit(32), worldUnit(18), "#7b5532");
+      px(p.x + worldUnit(-18), bodyY + worldUnit(-8), worldUnit(6), worldUnit(8), "#d6b17b");
+      px(p.x + worldUnit(12), bodyY + worldUnit(-8), worldUnit(6), worldUnit(8), "#d6b17b");
+      px(p.x + worldUnit(-8), bodyY + worldUnit(12 + legLiftA), worldUnit(6), worldUnit(8), "#59422a");
+      px(p.x + worldUnit(2), bodyY + worldUnit(12 + legLiftB), worldUnit(6), worldUnit(8), "#59422a");
+      px(p.x + worldUnit(-6), bodyY + worldUnit(-2), worldUnit(4), worldUnit(3), "#f4ddba");
+      px(p.x + worldUnit(2), bodyY + worldUnit(-2), worldUnit(4), worldUnit(3), "#f4ddba");
+      px(p.x + worldUnit(-5), bodyY + worldUnit(2), worldUnit(10), worldUnit(2), "#3d2b1a");
+    } else if (enemy.kind === "harpy") {
+      px(p.x + worldUnit(-8), bodyY + worldUnit(-14), worldUnit(16), worldUnit(8), "#9ec5ff");
+      px(p.x + worldUnit(-12), bodyY + worldUnit(-6), worldUnit(24), worldUnit(16), "#5f7fbb");
+      px(p.x + worldUnit(-22), bodyY + worldUnit(-8 - wingLift), worldUnit(10), worldUnit(18), "#dfe8ff");
+      px(p.x + worldUnit(12), bodyY + worldUnit(-8 + wingLift), worldUnit(10), worldUnit(18), "#dfe8ff");
+      px(p.x + worldUnit(-18), bodyY + worldUnit(-4 - wingLift), worldUnit(6), worldUnit(12), "#8aa9dc");
+      px(p.x + worldUnit(12), bodyY + worldUnit(-4 + wingLift), worldUnit(6), worldUnit(12), "#8aa9dc");
+      px(p.x + worldUnit(-4), bodyY + worldUnit(10 + legLiftA), worldUnit(4), worldUnit(8), "#6f5434");
+      px(p.x + worldUnit(2), bodyY + worldUnit(10 + legLiftB), worldUnit(4), worldUnit(8), "#6f5434");
+      px(p.x + worldUnit(-4), bodyY + worldUnit(-10), worldUnit(3), worldUnit(3), "#1f2937");
+      px(p.x + worldUnit(2), bodyY + worldUnit(-10), worldUnit(3), worldUnit(3), "#1f2937");
     } else {
-      px(p.x + worldUnit(-12), p.y + worldUnit(-18), worldUnit(24), worldUnit(10), "#6d39a0");
-      px(p.x + worldUnit(-16), p.y + worldUnit(-8), worldUnit(32), worldUnit(24), "#4f2378");
-      px(p.x + worldUnit(-20), p.y + worldUnit(-14), worldUnit(8), worldUnit(12), "#c24444");
-      px(p.x + worldUnit(12), p.y + worldUnit(-14), worldUnit(8), worldUnit(12), "#c24444");
-      px(p.x + worldUnit(-8), p.y + worldUnit(16), worldUnit(6), worldUnit(8), "#352048");
-      px(p.x + worldUnit(2), p.y + worldUnit(16), worldUnit(6), worldUnit(8), "#352048");
-      px(p.x + worldUnit(-6), p.y + worldUnit(-6), worldUnit(4), worldUnit(4), "#ff8f8f");
-      px(p.x + worldUnit(2), p.y + worldUnit(-6), worldUnit(4), worldUnit(4), "#ff8f8f");
+      px(p.x + worldUnit(-12), bodyY + worldUnit(-18), worldUnit(24), worldUnit(10), "#6d39a0");
+      px(p.x + worldUnit(-16), bodyY + worldUnit(-8), worldUnit(32), worldUnit(24), "#4f2378");
+      px(p.x + worldUnit(-20), bodyY + worldUnit(-14), worldUnit(8), worldUnit(12), "#c24444");
+      px(p.x + worldUnit(12), bodyY + worldUnit(-14), worldUnit(8), worldUnit(12), "#c24444");
+      px(p.x + worldUnit(-8), bodyY + worldUnit(16 + legLiftA), worldUnit(6), worldUnit(8), "#352048");
+      px(p.x + worldUnit(2), bodyY + worldUnit(16 + legLiftB), worldUnit(6), worldUnit(8), "#352048");
+      px(p.x + worldUnit(-6), bodyY + worldUnit(-6), worldUnit(4), worldUnit(4), "#ff8f8f");
+      px(p.x + worldUnit(2), bodyY + worldUnit(-6), worldUnit(4), worldUnit(4), "#ff8f8f");
     }
 
     ctx.fillStyle = "#3d4252";
-    ctx.fillRect(p.x - r, p.y - r - worldUnit(12), r * 2, worldUnit(5));
+    ctx.fillRect(p.x - r, bodyY - r - worldUnit(12), r * 2, worldUnit(5));
     ctx.fillStyle = "#69db7c";
-    ctx.fillRect(p.x - r, p.y - r - worldUnit(12), r * 2 * Math.max(0, enemy.hp / enemy.maxHp), worldUnit(5));
+    ctx.fillRect(p.x - r, bodyY - r - worldUnit(12), r * 2 * Math.max(0, enemy.hp / enemy.maxHp), worldUnit(5));
   }
 }
 
@@ -1107,6 +1147,14 @@ function drawProjectiles() {
 
 function drawPlayer() {
   const classKey = state.heroClass ?? "warrior";
+  const step = state.player.moving ? Math.sin(state.player.animTime * 1.4) : 0;
+  const bob = state.player.moving ? Math.abs(Math.sin(state.player.animTime * 1.4)) * 3 : Math.sin(state.progress.time * 2.2) * 1.2;
+  const bodyY = HALF_H + Math.round(bob);
+  const legA = Math.round(step * 3);
+  const legB = -legA;
+  const armA = Math.round(step * 2);
+  const armB = -armA;
+  const face = state.player.facing ?? 1;
   ctx.strokeStyle = "rgba(108, 196, 161, 0.25)";
   ctx.lineWidth = 2;
   ctx.beginPath();
@@ -1115,82 +1163,83 @@ function drawPlayer() {
 
   ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.beginPath();
-  ctx.ellipse(HALF_W, HALF_H + 23, 25, 12, 0, 0, Math.PI * 2);
+  ctx.ellipse(HALF_W, HALF_H + 23, state.player.moving ? 22 : 25, state.player.moving ? 10 : 12, 0, 0, Math.PI * 2);
   ctx.fill();
   if (classKey === "warrior") {
-    px(HALF_W - 16, HALF_H - 4, 8, 26, "#6b1f2f");
-    px(HALF_W + 8, HALF_H - 4, 8, 26, "#6b1f2f");
-    px(HALF_W - 12, HALF_H + 4, 24, 18, "#7b1e2b");
-    px(HALF_W - 10, HALF_H - 10, 20, 24, "#a9b8c7");
-    px(HALF_W - 8, HALF_H - 8, 16, 8, "#dce4ec");
-    px(HALF_W - 6, HALF_H, 12, 12, "#7f93a7");
-    px(HALF_W - 14, HALF_H - 6, 4, 12, "#d7e0ea");
-    px(HALF_W + 10, HALF_H - 6, 4, 12, "#d7e0ea");
-    px(HALF_W - 12, HALF_H - 28, 24, 10, "#415168");
-    px(HALF_W - 10, HALF_H - 34, 20, 8, "#5d6e86");
-    px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffd8a8" : "#f2c59c");
-    px(HALF_W - 4, HALF_H - 18, 8, 4, "#e6b58b");
-    px(HALF_W - 6, HALF_H + 14, 5, 12, "#3f4a57");
-    px(HALF_W + 1, HALF_H + 14, 5, 12, "#3f4a57");
-    px(HALF_W - 8, HALF_H + 26, 6, 6, "#7c8b98");
-    px(HALF_W + 2, HALF_H + 26, 6, 6, "#7c8b98");
-    px(HALF_W + 14, HALF_H - 8, 4, 18, "#8b5e34");
-    px(HALF_W + 18, HALF_H - 22, 6, 20, "#d7dee7");
-    px(HALF_W + 24, HALF_H - 28, 10, 6, "#f8fafc");
-    px(HALF_W - 24, HALF_H - 2, 10, 18, "#8a6a3d");
-    px(HALF_W - 22, HALF_H, 6, 10, "#d6c08d");
-    px(HALF_W - 20, HALF_H - 6, 4, 4, "#e7d4a8");
+    px(HALF_W - 16, bodyY - 4, 8, 26, "#6b1f2f");
+    px(HALF_W + 8, bodyY - 4, 8, 26, "#6b1f2f");
+    px(HALF_W - 12, bodyY + 4, 24, 18, "#7b1e2b");
+    px(HALF_W - 10, bodyY - 10, 20, 24, "#a9b8c7");
+    px(HALF_W - 8, bodyY - 8, 16, 8, "#dce4ec");
+    px(HALF_W - 6, bodyY, 12, 12, "#7f93a7");
+    px(HALF_W - 14, bodyY - 6 + armA, 4, 12, "#d7e0ea");
+    px(HALF_W + 10, bodyY - 6 + armB, 4, 12, "#d7e0ea");
+    px(HALF_W - 12, bodyY - 28, 24, 10, "#415168");
+    px(HALF_W - 10, bodyY - 34, 20, 8, "#5d6e86");
+    px(HALF_W - 8, bodyY - 22, 16, 12, state.player.flash > 0 ? "#ffd8a8" : "#f2c59c");
+    px(HALF_W - 4, bodyY - 18, 8, 4, "#e6b58b");
+    px(HALF_W - 6, bodyY + 14 + legA, 5, 12, "#3f4a57");
+    px(HALF_W + 1, bodyY + 14 + legB, 5, 12, "#3f4a57");
+    px(HALF_W - 8, bodyY + 26 + legA, 6, 6, "#7c8b98");
+    px(HALF_W + 2, bodyY + 26 + legB, 6, 6, "#7c8b98");
+    const swordSide = face > 0 ? 1 : -1;
+    px(HALF_W + swordSide * 14, bodyY - 8 + armB, 4, 18, "#8b5e34");
+    px(HALF_W + swordSide * 18, bodyY - 22 + armB, 6, 20, "#d7dee7");
+    px(HALF_W + swordSide * 24, bodyY - 28 + armB, 10, 6, "#f8fafc");
+    px(HALF_W - swordSide * 24, bodyY - 2 + armA, 10, 18, "#8a6a3d");
+    px(HALF_W - swordSide * 22, bodyY + armA, 6, 10, "#d6c08d");
+    px(HALF_W - swordSide * 20, bodyY - 6 + armA, 4, 4, "#e7d4a8");
   } else if (classKey === "archer") {
-    px(HALF_W - 14, HALF_H - 6, 8, 24, "#365733");
-    px(HALF_W + 6, HALF_H - 6, 8, 24, "#365733");
-    px(HALF_W - 10, HALF_H + 2, 20, 18, "#4b7a46");
-    px(HALF_W - 8, HALF_H - 8, 16, 22, "#9c6f3c");
-    px(HALF_W - 12, HALF_H - 28, 24, 8, "#6f8c52");
-    px(HALF_W - 10, HALF_H - 34, 20, 8, "#93b56a");
-    px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffd8a8" : "#efc79d");
-    px(HALF_W - 7, HALF_H - 4, 14, 6, "#b1824a");
-    px(HALF_W - 6, HALF_H + 14, 5, 12, "#4a3826");
-    px(HALF_W + 1, HALF_H + 14, 5, 12, "#4a3826");
-    px(HALF_W - 8, HALF_H + 26, 6, 6, "#6d5336");
-    px(HALF_W + 2, HALF_H + 26, 6, 6, "#6d5336");
-    px(HALF_W + 18, HALF_H - 16, 4, 34, "#90653a");
-    px(HALF_W + 12, HALF_H - 14, 6, 6, "#d8c089");
-    px(HALF_W + 22, HALF_H - 18, 4, 4, "#d8c089");
-    px(HALF_W - 24, HALF_H - 10, 4, 28, "#8a5e34");
-    px(HALF_W - 22, HALF_H - 14, 2, 6, "#f4e7c3");
+    px(HALF_W - 14, bodyY - 6, 8, 24, "#365733");
+    px(HALF_W + 6, bodyY - 6, 8, 24, "#365733");
+    px(HALF_W - 10, bodyY + 2, 20, 18, "#4b7a46");
+    px(HALF_W - 8, bodyY - 8, 16, 22, "#9c6f3c");
+    px(HALF_W - 12, bodyY - 28, 24, 8, "#6f8c52");
+    px(HALF_W - 10, bodyY - 34, 20, 8, "#93b56a");
+    px(HALF_W - 8, bodyY - 22, 16, 12, state.player.flash > 0 ? "#ffd8a8" : "#efc79d");
+    px(HALF_W - 7, bodyY - 4, 14, 6, "#b1824a");
+    px(HALF_W - 6, bodyY + 14 + legA, 5, 12, "#4a3826");
+    px(HALF_W + 1, bodyY + 14 + legB, 5, 12, "#4a3826");
+    px(HALF_W - 8, bodyY + 26 + legA, 6, 6, "#6d5336");
+    px(HALF_W + 2, bodyY + 26 + legB, 6, 6, "#6d5336");
+    px(HALF_W + face * 18, bodyY - 16 + armB, 4, 34, "#90653a");
+    px(HALF_W + face * 12, bodyY - 14 + armB, 6, 6, "#d8c089");
+    px(HALF_W + face * 22, bodyY - 18 + armB, 4, 4, "#d8c089");
+    px(HALF_W - face * 24, bodyY - 10 + armA, 4, 28, "#8a5e34");
+    px(HALF_W - face * 22, bodyY - 14 + armA, 2, 6, "#f4e7c3");
   } else if (classKey === "mage") {
-    px(HALF_W - 16, HALF_H - 2, 8, 24, "#263d7c");
-    px(HALF_W + 8, HALF_H - 2, 8, 24, "#263d7c");
-    px(HALF_W - 14, HALF_H + 2, 28, 22, "#3652a1");
-    px(HALF_W - 10, HALF_H - 10, 20, 20, "#5b79d1");
-    px(HALF_W - 14, HALF_H - 28, 28, 10, "#4966b6");
-    px(HALF_W - 10, HALF_H - 36, 20, 10, "#83a5ff");
-    px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffe0b9" : "#f0c8a2");
-    px(HALF_W - 6, HALF_H - 16, 12, 4, "#d9a97d");
-    px(HALF_W - 6, HALF_H + 16, 5, 12, "#1f2b59");
-    px(HALF_W + 1, HALF_H + 16, 5, 12, "#1f2b59");
-    px(HALF_W - 8, HALF_H + 28, 6, 6, "#7e91c4");
-    px(HALF_W + 2, HALF_H + 28, 6, 6, "#7e91c4");
-    px(HALF_W + 18, HALF_H - 22, 5, 34, "#8b6b3f");
-    px(HALF_W + 14, HALF_H - 30, 13, 10, "#8ce9ff");
-    px(HALF_W + 16, HALF_H - 28, 9, 6, "#d7fbff");
+    px(HALF_W - 16, bodyY - 2, 8, 24, "#263d7c");
+    px(HALF_W + 8, bodyY - 2, 8, 24, "#263d7c");
+    px(HALF_W - 14, bodyY + 2, 28, 22, "#3652a1");
+    px(HALF_W - 10, bodyY - 10, 20, 20, "#5b79d1");
+    px(HALF_W - 14, bodyY - 28, 28, 10, "#4966b6");
+    px(HALF_W - 10, bodyY - 36, 20, 10, "#83a5ff");
+    px(HALF_W - 8, bodyY - 22, 16, 12, state.player.flash > 0 ? "#ffe0b9" : "#f0c8a2");
+    px(HALF_W - 6, bodyY - 16, 12, 4, "#d9a97d");
+    px(HALF_W - 6, bodyY + 16 + legA, 5, 12, "#1f2b59");
+    px(HALF_W + 1, bodyY + 16 + legB, 5, 12, "#1f2b59");
+    px(HALF_W - 8, bodyY + 28 + legA, 6, 6, "#7e91c4");
+    px(HALF_W + 2, bodyY + 28 + legB, 6, 6, "#7e91c4");
+    px(HALF_W + face * 18, bodyY - 22 + armB, 5, 34, "#8b6b3f");
+    px(HALF_W + face * 14, bodyY - 30 + armB, 13, 10, "#8ce9ff");
+    px(HALF_W + face * 16, bodyY - 28 + armB, 9, 6, "#d7fbff");
   } else if (classKey === "rogue") {
-    px(HALF_W - 15, HALF_H - 6, 8, 24, "#38203f");
-    px(HALF_W + 7, HALF_H - 6, 8, 24, "#38203f");
-    px(HALF_W - 11, HALF_H + 0, 22, 18, "#5e2a66");
-    px(HALF_W - 10, HALF_H - 12, 20, 22, "#7d3c89");
-    px(HALF_W - 14, HALF_H - 28, 28, 8, "#2f2537");
-    px(HALF_W - 10, HALF_H - 34, 20, 8, "#584061");
-    px(HALF_W - 8, HALF_H - 22, 16, 12, state.player.flash > 0 ? "#ffd9bb" : "#f1c39f");
-    px(HALF_W - 4, HALF_H - 18, 8, 3, "#d99d7b");
-    px(HALF_W - 6, HALF_H + 14, 5, 12, "#251927");
-    px(HALF_W + 1, HALF_H + 14, 5, 12, "#251927");
-    px(HALF_W - 8, HALF_H + 26, 6, 6, "#6b5a75");
-    px(HALF_W + 2, HALF_H + 26, 6, 6, "#6b5a75");
-    px(HALF_W - 22, HALF_H - 8, 4, 20, "#cdd4dc");
-    px(HALF_W - 18, HALF_H - 12, 4, 16, "#8a97a8");
-    px(HALF_W + 18, HALF_H - 8, 4, 20, "#cdd4dc");
-    px(HALF_W + 22, HALF_H - 12, 4, 16, "#8a97a8");
+    px(HALF_W - 15, bodyY - 6, 8, 24, "#38203f");
+    px(HALF_W + 7, bodyY - 6, 8, 24, "#38203f");
+    px(HALF_W - 11, bodyY, 22, 18, "#5e2a66");
+    px(HALF_W - 10, bodyY - 12, 20, 22, "#7d3c89");
+    px(HALF_W - 14, bodyY - 28, 28, 8, "#2f2537");
+    px(HALF_W - 10, bodyY - 34, 20, 8, "#584061");
+    px(HALF_W - 8, bodyY - 22, 16, 12, state.player.flash > 0 ? "#ffd9bb" : "#f1c39f");
+    px(HALF_W - 4, bodyY - 18, 8, 3, "#d99d7b");
+    px(HALF_W - 6, bodyY + 14 + legA, 5, 12, "#251927");
+    px(HALF_W + 1, bodyY + 14 + legB, 5, 12, "#251927");
+    px(HALF_W - 8, bodyY + 26 + legA, 6, 6, "#6b5a75");
+    px(HALF_W + 2, bodyY + 26 + legB, 6, 6, "#6b5a75");
+    px(HALF_W - 22, bodyY - 8 + armA, 4, 20, "#cdd4dc");
+    px(HALF_W - 18, bodyY - 12 + armA, 4, 16, "#8a97a8");
+    px(HALF_W + 18, bodyY - 8 + armB, 4, 20, "#cdd4dc");
+    px(HALF_W + 22, bodyY - 12 + armB, 4, 16, "#8a97a8");
   }
 }
 
