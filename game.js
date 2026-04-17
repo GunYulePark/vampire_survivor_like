@@ -175,7 +175,7 @@ function resetGame() {
     meteorDamage: 7,
     meteorRadius: 88,
     meteorCount: 2,
-    potionDropRate: 0.18,
+    potionDropRate: 0.08,
   };
 
   state.timers = {
