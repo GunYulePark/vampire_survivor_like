@@ -1,5 +1,6 @@
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = false;
 
 const WIDTH = canvas.width;
 const HEIGHT = canvas.height;
@@ -11,12 +12,133 @@ let lastHorizontalKey = null;
 let lastVerticalKey = null;
 let lastTime = performance.now();
 let cardHitboxes = [];
+let audioReady = false;
+
+const audioState = {
+  ctx: null,
+  master: null,
+  lastPlayed: new Map(),
+};
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const rand = (min, max) => Math.random() * (max - min) + min;
 const distance = (ax, ay, bx, by) => Math.hypot(bx - ax, by - ay);
+const tileNoise = (x, y) => Math.abs((x * 92821) ^ (y * 68917) ^ 0x45d9f3b);
 
 const state = {};
+
+function ensureAudio() {
+  if (audioState.ctx) {
+    if (audioState.ctx.state === "suspended") audioState.ctx.resume();
+    audioReady = true;
+    return;
+  }
+
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+
+  audioState.ctx = new AudioCtx();
+  audioState.master = audioState.ctx.createGain();
+  audioState.master.gain.value = 0.18;
+  audioState.master.connect(audioState.ctx.destination);
+  audioReady = true;
+}
+
+function playTone({ freq, endFreq = freq, duration = 0.08, type = "sine", gain = 0.07, when = 0 }) {
+  if (!audioReady || !audioState.ctx) return;
+  const t0 = audioState.ctx.currentTime + when;
+  const osc = audioState.ctx.createOscillator();
+  const amp = audioState.ctx.createGain();
+  osc.type = type;
+  osc.frequency.setValueAtTime(freq, t0);
+  osc.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), t0 + duration);
+  amp.gain.setValueAtTime(0.0001, t0);
+  amp.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+  amp.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+  osc.connect(amp);
+  amp.connect(audioState.master);
+  osc.start(t0);
+  osc.stop(t0 + duration + 0.02);
+}
+
+function playNoise({ duration = 0.08, gain = 0.035, filter = 900, when = 0 }) {
+  if (!audioReady || !audioState.ctx) return;
+  const length = Math.max(1, Math.floor(audioState.ctx.sampleRate * duration));
+  const buffer = audioState.ctx.createBuffer(1, length, audioState.ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < length; i += 1) {
+    data[i] = (Math.random() * 2 - 1) * (1 - i / length);
+  }
+
+  const source = audioState.ctx.createBufferSource();
+  const filterNode = audioState.ctx.createBiquadFilter();
+  const amp = audioState.ctx.createGain();
+  const t0 = audioState.ctx.currentTime + when;
+
+  source.buffer = buffer;
+  filterNode.type = "bandpass";
+  filterNode.frequency.value = filter;
+  amp.gain.setValueAtTime(0.0001, t0);
+  amp.gain.exponentialRampToValueAtTime(gain, t0 + 0.01);
+  amp.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+
+  source.connect(filterNode);
+  filterNode.connect(amp);
+  amp.connect(audioState.master);
+  source.start(t0);
+}
+
+function playSfx(name) {
+  if (!audioReady) return;
+  const now = performance.now();
+  const cooldowns = {
+    projectile: 90,
+    melee: 110,
+    chain: 180,
+    burst: 220,
+    meteor: 260,
+    xp: 70,
+    potion: 120,
+    hurt: 180,
+    levelup: 240,
+    upgrade: 180,
+    death: 500,
+  };
+  const last = audioState.lastPlayed.get(name) ?? 0;
+  if (now - last < (cooldowns[name] ?? 0)) return;
+  audioState.lastPlayed.set(name, now);
+
+  if (name === "projectile") {
+    playTone({ freq: 880, endFreq: 640, duration: 0.05, type: "square", gain: 0.03 });
+  } else if (name === "melee") {
+    playNoise({ duration: 0.06, gain: 0.03, filter: 1400 });
+    playTone({ freq: 240, endFreq: 120, duration: 0.07, type: "triangle", gain: 0.04 });
+  } else if (name === "chain") {
+    playTone({ freq: 640, endFreq: 1280, duration: 0.08, type: "sawtooth", gain: 0.05 });
+    playTone({ freq: 900, endFreq: 420, duration: 0.1, type: "square", gain: 0.025, when: 0.02 });
+  } else if (name === "burst") {
+    playTone({ freq: 360, endFreq: 110, duration: 0.18, type: "triangle", gain: 0.06 });
+    playNoise({ duration: 0.1, gain: 0.028, filter: 700, when: 0.02 });
+  } else if (name === "meteor") {
+    playTone({ freq: 180, endFreq: 70, duration: 0.22, type: "sawtooth", gain: 0.055 });
+    playNoise({ duration: 0.12, gain: 0.03, filter: 500, when: 0.04 });
+  } else if (name === "xp") {
+    playTone({ freq: 960, endFreq: 1180, duration: 0.04, type: "triangle", gain: 0.028 });
+  } else if (name === "potion") {
+    playTone({ freq: 420, endFreq: 700, duration: 0.09, type: "sine", gain: 0.045 });
+  } else if (name === "hurt") {
+    playNoise({ duration: 0.07, gain: 0.03, filter: 420 });
+    playTone({ freq: 200, endFreq: 120, duration: 0.08, type: "sawtooth", gain: 0.03 });
+  } else if (name === "levelup") {
+    playTone({ freq: 520, endFreq: 860, duration: 0.12, type: "triangle", gain: 0.05 });
+    playTone({ freq: 780, endFreq: 1180, duration: 0.14, type: "triangle", gain: 0.04, when: 0.05 });
+  } else if (name === "upgrade") {
+    playTone({ freq: 640, endFreq: 980, duration: 0.09, type: "triangle", gain: 0.045 });
+  } else if (name === "death") {
+    playNoise({ duration: 0.15, gain: 0.03, filter: 260 });
+    playTone({ freq: 240, endFreq: 60, duration: 0.28, type: "sawtooth", gain: 0.05 });
+  }
+}
 
 function resetGame() {
   state.player = {
@@ -212,6 +334,7 @@ function spawnEnemy() {
 
 function gainXp(value) {
   state.progress.xp += value;
+  playSfx("xp");
   while (state.progress.xp >= state.progress.xpToNext) {
     state.progress.xp -= state.progress.xpToNext;
     state.progress.level += 1;
@@ -225,6 +348,7 @@ function gainXp(value) {
 
 function openLevelUp() {
   state.flags.levelUp = true;
+  playSfx("levelup");
   const pool = [
     { title: "Rapid Fire", desc: "Blessed bolt cooldown -12%", apply: () => (state.combat.projectileCooldown = Math.max(0.12, state.combat.projectileCooldown * 0.88)) },
     { title: "Heavy Shots", desc: "Blessed bolt damage +1", apply: () => (state.combat.projectileDamage += 1) },
@@ -247,6 +371,7 @@ function applyUpgrade(index) {
   const choice = state.upgrades[index];
   if (!choice) return;
   choice.apply();
+  playSfx("upgrade");
   state.progress.pendingLevelUps = Math.max(0, state.progress.pendingLevelUps - 1);
   if (state.progress.pendingLevelUps > 0) {
     openLevelUp();
@@ -274,6 +399,7 @@ function fireProjectiles() {
       life: 0.95,
     });
   }
+  playSfx("projectile");
 }
 
 function performMeleeAttack() {
@@ -287,12 +413,14 @@ function performMeleeAttack() {
   if (hits) {
     state.combat.meleeFlash = 0.16;
     addText(state.player.x, state.player.y - 48, "Slash!", 0.28, "#ffd43b");
+    playSfx("melee");
   }
 }
 
 function castChainLightning() {
   let current = nearestEnemy(560);
   if (!current) return;
+  playSfx("chain");
   const used = new Set();
   const hit = new Set();
   let sourceX = state.player.x;
@@ -330,6 +458,7 @@ function castChainLightning() {
 function castSanctify() {
   const target = clusterTarget(state.combat.burstRadius * 1.15, 560);
   if (!target) return;
+  playSfx("burst");
   addBurst(target.x, target.y, state.combat.burstRadius, 0.28, "#ffe066", "rgba(255, 243, 191, 0.25)");
   for (const enemy of state.entities.enemies) {
     if (distance(target.x, target.y, enemy.x, enemy.y) <= state.combat.burstRadius + enemy.radius) {
@@ -341,6 +470,7 @@ function castSanctify() {
 function castMeteor() {
   const candidates = enemiesByDistance(660).slice(0, 6);
   if (!candidates.length) return;
+  playSfx("meteor");
   const shuffled = [...candidates].sort(() => Math.random() - 0.5).slice(0, state.combat.meteorCount);
   for (const target of shuffled) {
     const strikeX = target.x + rand(-18, 18);
@@ -421,10 +551,12 @@ function updateEnemies(dt) {
       state.player.hp -= enemy.damage;
       state.player.invuln = 0.85;
       state.player.flash = 0.16;
+      playSfx("hurt");
       enemy.x -= (dx / norm) * 24;
       enemy.y -= (dy / norm) * 24;
       if (state.player.hp <= 0) {
         state.flags.gameOver = true;
+        playSfx("death");
       }
     }
 
@@ -474,6 +606,7 @@ function updatePickups(dt) {
         const healed = Math.min(state.player.maxHp - state.player.hp, potion.heal);
         state.player.hp = Math.min(state.player.maxHp, state.player.hp + potion.heal);
         addText(state.player.x, state.player.y - 56, `+${healed} hp`, 0.5, "#ff9dcb");
+        playSfx("potion");
       }
     } else if (inActiveBounds(potion.x, potion.y, 260)) {
       nextPotions.push(potion);
@@ -557,7 +690,11 @@ function update(dt) {
 }
 
 function drawBackground() {
-  ctx.fillStyle = "#0d1510";
+  const sky = ctx.createLinearGradient(0, 0, 0, HEIGHT);
+  sky.addColorStop(0, "#17261b");
+  sky.addColorStop(0.45, "#102018");
+  sky.addColorStop(1, "#09120d");
+  ctx.fillStyle = sky;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
   const tile = 128;
@@ -570,13 +707,34 @@ function drawBackground() {
   for (let tx = startX; tx <= endX; tx += 1) {
     for (let ty = startY; ty <= endY; ty += 1) {
       const p = worldToScreen(tx * tile, ty * tile);
-      ctx.fillStyle = (tx + ty) % 2 === 0 ? "#1c2d20" : "#213223";
+      const noise = tileNoise(tx, ty);
+      ctx.fillStyle = (tx + ty) % 2 === 0 ? "#223627" : "#263b2b";
       ctx.fillRect(p.x, p.y, tile, tile);
-      ctx.strokeStyle = "#304335";
+      ctx.strokeStyle = "#314935";
       ctx.strokeRect(p.x, p.y, tile, tile);
-      if (((tx * 31 + ty * 17) & 7) === 0) {
+      if ((noise & 7) === 0) {
         ctx.strokeStyle = "#4a5f4d";
         ctx.strokeRect(p.x + 34, p.y + 34, 60, 60);
+      }
+      if ((noise & 15) === 3) {
+        ctx.strokeStyle = "#3f5340";
+        ctx.beginPath();
+        ctx.moveTo(p.x + 24, p.y + 26);
+        ctx.lineTo(p.x + 48, p.y + 58);
+        ctx.lineTo(p.x + 76, p.y + 46);
+        ctx.stroke();
+      }
+      if ((noise & 31) === 10) {
+        ctx.fillStyle = "#305239";
+        ctx.fillRect(p.x + 18, p.y + 20, 6, 10);
+        ctx.fillRect(p.x + 24, p.y + 14, 6, 18);
+        ctx.fillRect(p.x + 30, p.y + 20, 6, 10);
+      }
+      if ((noise & 31) === 18) {
+        ctx.fillStyle = "#4f5a48";
+        ctx.fillRect(p.x + 84, p.y + 80, 18, 18);
+        ctx.strokeStyle = "#65735f";
+        ctx.strokeRect(p.x + 84, p.y + 80, 18, 18);
       }
     }
   }
@@ -596,6 +754,18 @@ function drawBackground() {
   ctx.lineTo(HALF_W - 62, HALF_H);
   ctx.closePath();
   ctx.stroke();
+
+  const centerGlow = ctx.createRadialGradient(HALF_W, HALF_H, 20, HALF_W, HALF_H, 220);
+  centerGlow.addColorStop(0, "rgba(165, 233, 198, 0.10)");
+  centerGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = centerGlow;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+  const vignette = ctx.createRadialGradient(HALF_W, HALF_H, 180, HALF_W, HALF_H, WIDTH * 0.72);
+  vignette.addColorStop(0, "rgba(0, 0, 0, 0)");
+  vignette.addColorStop(1, "rgba(0, 0, 0, 0.32)");
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, WIDTH, HEIGHT);
 }
 
 function drawPickups() {
@@ -611,6 +781,8 @@ function drawPickups() {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    ctx.fillStyle = "#effff3";
+    ctx.fillRect(p.x - 1, p.y - gem.radius + 2, 2, 2);
   }
 
   for (const potion of state.entities.potions) {
@@ -622,6 +794,8 @@ function drawPickups() {
     ctx.ellipse(p.x, p.y, potion.radius, potion.radius * 0.82, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.fillStyle = "#ffe2f1";
+    ctx.fillRect(p.x - 2, p.y - 3, 4, 3);
     ctx.fillStyle = "#8b5e34";
     ctx.fillRect(p.x - 4, p.y - potion.radius - 4, 8, 7);
   }
@@ -693,6 +867,8 @@ function drawEnemies() {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = "rgba(245,255,247,0.75)";
+      ctx.fillRect(p.x - 4, p.y - r * 0.45, 8, 5);
     } else if (enemy.kind === "beast") {
       ctx.fillStyle = "#8b5e34";
       ctx.strokeStyle = "#d6b17b";
@@ -705,6 +881,9 @@ function drawEnemies() {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = "#d5b989";
+      ctx.fillRect(p.x - 4, p.y - r * 0.72, 3, 7);
+      ctx.fillRect(p.x + 1, p.y - r * 0.72, 3, 7);
     } else {
       ctx.fillStyle = "#5b2c83";
       ctx.strokeStyle = "#b197fc";
@@ -717,6 +896,9 @@ function drawEnemies() {
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.fillStyle = "#dbc6ff";
+      ctx.fillRect(p.x - 5, p.y - r * 0.8, 4, 6);
+      ctx.fillRect(p.x + 1, p.y - r * 0.8, 4, 6);
     }
 
     ctx.fillStyle = "#1f2937";
@@ -742,10 +924,18 @@ function drawProjectiles() {
     ctx.moveTo(prev.x, prev.y);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
+    ctx.strokeStyle = "rgba(255, 243, 191, 0.35)";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(prev.x, prev.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
     ctx.fillStyle = "#f3c969";
     ctx.beginPath();
     ctx.arc(p.x, p.y, projectile.radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = "#fff8dc";
+    ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
   }
 }
 
@@ -761,6 +951,8 @@ function drawPlayer() {
   ctx.ellipse(HALF_W, HALF_H + 23, 25, 12, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  ctx.fillStyle = "#4a101b";
+  ctx.fillRect(HALF_W - 13, HALF_H + 4, 26, 18);
   ctx.fillStyle = "#7b1e2b";
   ctx.beginPath();
   ctx.moveTo(HALF_W, HALF_H + 18);
@@ -774,6 +966,8 @@ function drawPlayer() {
   ctx.lineWidth = 2;
   ctx.fillRect(HALF_W - 10, HALF_H - 9, 20, 24);
   ctx.strokeRect(HALF_W - 10, HALF_H - 9, 20, 24);
+  ctx.fillStyle = "#dbe3ec";
+  ctx.fillRect(HALF_W - 5, HALF_H - 5, 10, 5);
 
   ctx.fillStyle = state.player.flash > 0 ? "#ffd8a8" : "#f2c59c";
   ctx.beginPath();
@@ -784,6 +978,8 @@ function drawPlayer() {
   ctx.beginPath();
   ctx.arc(HALF_W, HALF_H - 19, 12, Math.PI, Math.PI * 2);
   ctx.fill();
+  ctx.fillStyle = "#5f718d";
+  ctx.fillRect(HALF_W - 8, HALF_H - 25, 16, 4);
 
   ctx.strokeStyle = "#d7dee7";
   ctx.lineWidth = 4;
@@ -805,6 +1001,8 @@ function drawPlayer() {
   ctx.ellipse(HALF_W - 18, HALF_H + 4, 9, 12, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
+  ctx.fillStyle = "#e7d4a8";
+  ctx.fillRect(HALF_W - 21, HALF_H, 6, 4);
 }
 
 function drawTexts() {
@@ -826,6 +1024,9 @@ function drawHud() {
 
   ctx.fillStyle = "#fff8db";
   ctx.font = "bold 24px Segoe UI";
+  ctx.shadowColor = "rgba(0,0,0,0.35)";
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 2;
   ctx.fillText(`Time ${formatTime(state.progress.time)}`, 32, 48);
   ctx.font = "16px Segoe UI";
   ctx.fillStyle = "#d8f5d0";
@@ -850,6 +1051,7 @@ function drawHud() {
   ctx.fillRect(32, 172, 220 * xpRatio, 12);
   ctx.fillStyle = "#dbe4ff";
   ctx.fillText(`XP ${state.progress.xp}/${state.progress.xpToNext}`, 260, 182);
+  ctx.shadowOffsetY = 0;
 }
 
 function drawLevelUpOverlay() {
@@ -949,6 +1151,7 @@ function loop(now) {
 }
 
 window.addEventListener("keydown", (event) => {
+  ensureAudio();
   const key = event.key.toLowerCase();
   if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) event.preventDefault();
   keys.add(key);
@@ -983,6 +1186,7 @@ window.addEventListener("blur", () => {
 });
 
 canvas.addEventListener("click", (event) => {
+  ensureAudio();
   if (!state.flags.levelUp) return;
   const rect = canvas.getBoundingClientRect();
   const x = ((event.clientX - rect.left) / rect.width) * WIDTH;
