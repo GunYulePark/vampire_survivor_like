@@ -1024,21 +1024,14 @@ function drawBackground() {
     }
   }
 
-  ctx.strokeStyle = "#4f8f76";
-  ctx.lineWidth = 3;
+  ctx.save();
+  ctx.strokeStyle = "rgba(126, 190, 164, 0.14)";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([10, 12]);
   ctx.beginPath();
-  ctx.arc(HALF_W, HALF_H, 112, 0, Math.PI * 2);
+  ctx.arc(HALF_W, HALF_H, 96, 0, Math.PI * 2);
   ctx.stroke();
-  ctx.beginPath();
-  ctx.arc(HALF_W, HALF_H, 82, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.beginPath();
-  ctx.moveTo(HALF_W, HALF_H - 70);
-  ctx.lineTo(HALF_W + 62, HALF_H);
-  ctx.lineTo(HALF_W, HALF_H + 70);
-  ctx.lineTo(HALF_W - 62, HALF_H);
-  ctx.closePath();
-  ctx.stroke();
+  ctx.restore();
 
   const centerGlow = ctx.createRadialGradient(HALF_W, HALF_H, 20, HALF_W, HALF_H, 220);
   centerGlow.addColorStop(0, "rgba(165, 233, 198, 0.10)");
@@ -1330,11 +1323,14 @@ function drawPlayer() {
   const armA = Math.round(step * 2);
   const armB = -armA;
   const face = state.player.facing ?? 1;
-  ctx.strokeStyle = "rgba(108, 196, 161, 0.25)";
-  ctx.lineWidth = 2;
+  ctx.save();
+  ctx.strokeStyle = "rgba(156, 229, 176, 0.16)";
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([8, 12]);
   ctx.beginPath();
   ctx.arc(HALF_W, HALF_H, worldUnit(state.player.pickupRadius), 0, Math.PI * 2);
   ctx.stroke();
+  ctx.restore();
 
   ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.beginPath();
